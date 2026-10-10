@@ -8859,6 +8859,12 @@ inductive Stmt where
       `src` is never used again, so the aliasing of the EVM pointer copy is unobservable
       (OpenZeppelin `EnumerableSet.values`). -/
   | castMemoryArray : String -> String -> Ty -> Stmt
+  /-- `r.slot := slot` (assembly): bind the storage pointer `r` to the raw slot
+      `slot`, reading it as `layout` (the layout of `r`'s struct type). -/
+  | bindRawStorageRef : String -> Expr -> StorageLayout -> Stmt
+  /-- `r.slot := p.slot` (assembly): bind the storage pointer `r` to the slot of the
+      storage pointer `p`, reading it as `layout` (the layout of `r`'s type). -/
+  | rebindStorageRef : String -> String -> StorageLayout -> Stmt
   | checked : Stmt -> Stmt
   | unchecked : Stmt -> Stmt
   deriving Repr
@@ -9370,6 +9376,11 @@ def Stmt.normalizeStorageValueUses : Stmt -> Stmt
         (Expr.normalizeStorageValueUses StoragePosition.valueUse data)
   | Stmt.castMemoryArray dest src elementTy =>
       Stmt.castMemoryArray dest src elementTy
+  | Stmt.bindRawStorageRef dest slot layout =>
+      Stmt.bindRawStorageRef dest
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse slot) layout
+  | Stmt.rebindStorageRef dest src layout =>
+      Stmt.rebindStorageRef dest src layout
   | Stmt.checked stmt => Stmt.checked stmt.normalizeStorageValueUses
   | Stmt.unchecked stmt => Stmt.unchecked stmt.normalizeStorageValueUses
 
@@ -11082,6 +11093,30 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                           pure (Result.reverted runtime RevertData.typeMismatch)
                   | none => pure (Result.reverted runtime RevertData.typeMismatch)
               | _ => pure (Result.reverted runtime RevertData.typeMismatch)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
+      | Stmt.bindRawStorageRef dest slotExpr layout => do
+          match ← (Expr.eval context runtime slotExpr).caught with
+          | Except.ok (slotValue, runtime') =>
+              match slotValue.expectWord with
+              | Except.ok slot =>
+                  match runtime'.assignStorageRefValue? dest
+                      (Value.storageSlotRef slot layout) with
+                  | some updated => pure (Result.normal updated)
+                  | none =>
+                      pure (Result.reverted runtime' RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.rebindStorageRef dest src layout =>
+          match runtime.lookupStorageBase? src with
+          | some base =>
+              match runtime.resolveStorageBasePath context base [] with
+              | Except.ok (slot, _) =>
+                  match runtime.assignStorageRefValue? dest
+                      (Value.storageSlotRef slot layout) with
+                  | some updated => pure (Result.normal updated)
+                  | none =>
+                      pure (Result.reverted runtime RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime err)
           | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.checked body =>
           Stmt.eval fuel table { context with checked := true } runtime body
