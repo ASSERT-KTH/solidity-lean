@@ -3537,6 +3537,11 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   | some (RecognisedAssembly.revertBytes data) =>
       some (SolidCore.Solidity.Source.Stmt.revertRawBytes
         (SolidCore.Solidity.Source.Expr.var data))
+  | some (RecognisedAssembly.castMemoryArray dest src elem) =>
+      some (SolidCore.Solidity.Source.Stmt.castMemoryArray dest src
+        (if elem == "address" then SolidCore.Solidity.Source.Ty.address
+         else if elem == "uint256" then SolidCore.Solidity.Source.Ty.uint256
+         else SolidCore.Solidity.Source.Ty.fixedBytes 32))
   | none =>
   match stmt with
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip

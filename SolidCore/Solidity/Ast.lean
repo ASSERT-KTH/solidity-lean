@@ -323,12 +323,16 @@ def Stmt.forwardingAssemblyTarget? (code : String) : Option Name :=
     * `storageLoad d s`: `d := sload(s)`;
     * `storageStore s v`: `sstore(s, v)`;
     * `revertBytes b`: `let n := mload(b) revert(add(32, b), n)`, the revert-data
-      bubble of `Address.verifyCallResult` for a `bytes memory` local `b`. -/
+      bubble of `Address.verifyCallResult` for a `bytes memory` local `b`;
+    * `castMemoryArray d s e`: `d := s` between one-dimensional dynamic memory arrays of
+      words, reinterpreted as elements `e` (`address`/`uint256`/`bytes32`), `s` unused
+      afterwards (`EnumerableSet.values`). -/
 inductive RecognisedAssembly where
   | forwardDelegatecall : Name -> RecognisedAssembly
   | storageLoad : Name -> Name -> RecognisedAssembly
   | storageStore : Name -> Name -> RecognisedAssembly
   | revertBytes : Name -> RecognisedAssembly
+  | castMemoryArray : Name -> Name -> String -> RecognisedAssembly
   deriving Repr
 
 /-- Parse an importer marker (`forward-delegatecall:t`, `storage-load:d:s`,
@@ -345,6 +349,10 @@ def Stmt.recognisedAssembly? (code : String) : Option RecognisedAssembly :=
       else some (RecognisedAssembly.storageStore s v)
   | ["revert-bytes", b] =>
       if b.isEmpty then none else some (RecognisedAssembly.revertBytes b)
+  | ["memory-array-cast", d, s, elem] =>
+      if d.isEmpty || s.isEmpty || d == s ||
+          !(elem == "address" || elem == "uint256" || elem == "bytes32") then none
+      else some (RecognisedAssembly.castMemoryArray d s elem)
   | _ => none
 
 structure ModifierInvocation where

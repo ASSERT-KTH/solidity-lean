@@ -11312,6 +11312,28 @@ def checkStmt (env : CheckEnv) :
                | some Solidity.DataLocation.calldata => false
                | _ => true)
           if memoryBytes then Except.ok { source := stmt } else unsupported
+      | some (Solidity.RecognisedAssembly.castMemoryArray dest src elem) =>
+          -- One-dimensional dynamic memory arrays of 256-bit words / addresses; the
+          -- marker's element kind must be the destination's.
+          let elementKind (ty : Solidity.Ty) : Option String :=
+            match ty with
+            | Solidity.Ty.array (Solidity.Ty.address false) none => some "address"
+            | Solidity.Ty.array (Solidity.Ty.uint 256) none => some "uint256"
+            | Solidity.Ty.array (Solidity.Ty.bytesN 32) none => some "bytes32"
+            | Solidity.Ty.array (Solidity.Ty.fixedBytes 32) none => some "bytes32"
+            | _ => none
+          let inMemory (name : Name) : Bool :=
+            match env.lookupLocalDataLocation? name with
+            | some Solidity.DataLocation.storage => false
+            | some Solidity.DataLocation.calldata => false
+            | _ => true
+          match env.isLocalName dest && env.isLocalName src && inMemory dest &&
+              inMemory src, env.lookupVar? dest, env.lookupVar? src with
+          | true, some destTy, some srcTy =>
+              if elementKind destTy == some elem && (elementKind srcTy).isSome then
+                Except.ok { source := stmt }
+              else unsupported
+          | _, _, _ => unsupported
       | none => unsupported
   | stmt@Solidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier

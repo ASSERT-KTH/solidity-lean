@@ -596,13 +596,41 @@ def revert_bytes_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, str
     return f"revert-bytes:{b1[0]}", [b1, b2]
 
 
+def memory_array_cast_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
+    """`dest := src` between two locals. The marker is completed by the rewrite with the
+    destination's element kind, after checking both are memory word arrays."""
+    stmt = _sole_stmt(yul)
+    if not stmt or stmt.get("nodeType") != "YulAssignment" or len(stmt.get("variableNames", [])) != 1:
+        return None
+    dest = _yul_ident_src(stmt["variableNames"][0])
+    src = _yul_ident_src(stmt.get("value") or {})
+    if dest is None or src is None or dest[0] == src[0]:
+        return None
+    return f"memory-array-cast:{dest[0]}:{src[0]}", [dest, src]
+
+
+def _word_array_element(decl: dict[str, Any]) -> str | None:
+    """`address`/`uint256`/`bytes32` if `decl` is a one-dimensional dynamic memory array
+    of that element type."""
+    type_name = decl.get("typeName") or {}
+    base = type_name.get("baseType") or {}
+    if (type_name.get("nodeType") != "ArrayTypeName" or type_name.get("length") is not None
+            or decl.get("storageLocation") != "memory" or base.get("nodeType") != "ElementaryTypeName"):
+        return None
+    name = base.get("name")
+    if name == "address" and base.get("stateMutability") != "payable":
+        return "address"
+    return name if name in ("uint256", "bytes32") else None
+
+
 def recognise_assembly(node: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
     """Marker (see `RecognisedAssembly` in Ast.lean) and external operands of an
     InlineAssembly node, if it is exactly one recognised idiom."""
     yul = node.get("AST") or {}
     if (fwd := forwarding_assembly_target(yul)) is not None:
         return FORWARDING_ASSEMBLY_PREFIX + fwd[0], [(fwd[0], fwd[1])]
-    for matcher in (storage_load_assembly, storage_store_assembly, revert_bytes_assembly):
+    for matcher in (storage_load_assembly, storage_store_assembly, revert_bytes_assembly,
+                    memory_array_cast_assembly):
         if (hit := matcher(yul)) is not None:
             return hit
     return None
@@ -613,11 +641,15 @@ def rewrite_recognised_assembly(ast: dict[str, Any]) -> None:
     `RecognisedAssembly` node (`marker`), in place. Every operand must resolve (solc's
     `externalReferences`) to a local variable or parameter, never to state."""
     nodes_by_id: dict[int, dict[str, Any]] = {}
+    identifier_uses: dict[int, int] = {}  # declaration id -> Solidity `Identifier` references
 
     def index(value: Any) -> None:
         if isinstance(value, dict):
             if isinstance(value.get("id"), int):
                 nodes_by_id[value["id"]] = value
+            if value.get("nodeType") == "Identifier" and isinstance(value.get("referencedDeclaration"), int):
+                declaration = value["referencedDeclaration"]
+                identifier_uses[declaration] = identifier_uses.get(declaration, 0) + 1
             for child in value.values():
                 index(child)
         elif isinstance(value, list):
@@ -629,6 +661,7 @@ def rewrite_recognised_assembly(ast: dict[str, Any]) -> None:
         if match is None:
             return None
         text, operands = match
+        decls = []
         for name, src in operands:
             hits = [r for r in node.get("externalReferences", []) if r.get("src") == src]
             if len(hits) != 1 or hits[0].get("isSlot") or hits[0].get("isOffset"):
@@ -637,6 +670,14 @@ def rewrite_recognised_assembly(ast: dict[str, Any]) -> None:
             if not (decl and decl.get("nodeType") == "VariableDeclaration"
                     and not decl.get("stateVariable") and decl.get("name") == name):
                 return None
+            decls.append(decl)
+        if text.startswith("memory-array-cast:"):
+            # Both are word arrays in memory, and the source is never read by Solidity code:
+            # the EVM pointer copy then aliases nothing observable.
+            dest_kind, src_kind = _word_array_element(decls[0]), _word_array_element(decls[1])
+            if dest_kind is None or src_kind is None or identifier_uses.get(decls[1].get("id", -1), 0) != 0:
+                return None
+            return f"{text}:{dest_kind}"
         return text
 
     def replacement(child: Any) -> dict[str, Any] | None:

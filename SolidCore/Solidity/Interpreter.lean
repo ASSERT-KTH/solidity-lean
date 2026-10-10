@@ -8852,6 +8852,13 @@ inductive Stmt where
   /-- `revert(add(32, b), mload(b))` for a `bytes memory` value `b`: revert with
       exactly those bytes (the revert-data bubble). -/
   | revertRawBytes : Expr -> Stmt
+  /-- `dest := src` (assembly) between two one-dimensional dynamic memory arrays of
+      word elements, reinterpreting the elements as `elementTy` (`address`, `uint256`
+      or `bytes32`): `dest` becomes a new array of the same words, cleaned to the
+      element type (an address keeps its low 160 bits). The importer only emits it when
+      `src` is never used again, so the aliasing of the EVM pointer copy is unobservable
+      (OpenZeppelin `EnumerableSet.values`). -/
+  | castMemoryArray : String -> String -> Ty -> Stmt
   | checked : Stmt -> Stmt
   | unchecked : Stmt -> Stmt
   deriving Repr
@@ -9361,6 +9368,8 @@ def Stmt.normalizeStorageValueUses : Stmt -> Stmt
   | Stmt.revertRawBytes data =>
       Stmt.revertRawBytes
         (Expr.normalizeStorageValueUses StoragePosition.valueUse data)
+  | Stmt.castMemoryArray dest src elementTy =>
+      Stmt.castMemoryArray dest src elementTy
   | Stmt.checked stmt => Stmt.checked stmt.normalizeStorageValueUses
   | Stmt.unchecked stmt => Stmt.unchecked stmt.normalizeStorageValueUses
 
@@ -11054,6 +11063,26 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
               | none =>
                   pure (Result.reverted runtime' RevertData.typeMismatch)
           | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.castMemoryArray dest src elementTy =>
+          let cast? (value : Value) : Option Value :=
+            match value.asWord?, elementTy with
+            | some word, Ty.address => some (Value.word (word % 2 ^ 160))
+            | some word, Ty.uint256 => some (Value.word word)
+            | some word, Ty.fixedBytes 32 => some (Value.fixedBytes 32 word)
+            | _, _ => none
+          match runtime.lookupMemoryRef? src with
+          | some id =>
+              match runtime.loadMemory? id with
+              | some (Value.dynamicArray elements) =>
+                  match elements.mapM cast? with
+                  | some cast =>
+                      match runtime.assignLocal? dest (Value.dynamicArray cast) with
+                      | some updated => pure (Result.normal updated)
+                      | none =>
+                          pure (Result.reverted runtime RevertData.typeMismatch)
+                  | none => pure (Result.reverted runtime RevertData.typeMismatch)
+              | _ => pure (Result.reverted runtime RevertData.typeMismatch)
+          | none => pure (Result.reverted runtime RevertData.typeMismatch)
       | Stmt.checked body =>
           Stmt.eval fuel table { context with checked := true } runtime body
       | Stmt.unchecked body =>
