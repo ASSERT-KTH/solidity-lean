@@ -8844,6 +8844,14 @@ inductive Stmt where
       `selfdestruct` it leaves every enclosing internal call), on failure it reverts
       with the raw return data. -/
   | forwardDelegatecall : Expr -> Stmt
+  /-- `dest := sload(slot)` (assembly): the raw storage word at `slot`, assigned to
+      the local `dest` (a 256-bit word or an address). -/
+  | loadRawSlot : String -> Expr -> Stmt
+  /-- `sstore(slot, value)` (assembly): write the word `value` at the raw `slot`. -/
+  | storeRawSlot : Expr -> Expr -> Stmt
+  /-- `revert(add(32, b), mload(b))` for a `bytes memory` value `b`: revert with
+      exactly those bytes (the revert-data bubble). -/
+  | revertRawBytes : Expr -> Stmt
   | checked : Stmt -> Stmt
   | unchecked : Stmt -> Stmt
   deriving Repr
@@ -9343,6 +9351,16 @@ def Stmt.normalizeStorageValueUses : Stmt -> Stmt
   | Stmt.forwardDelegatecall target =>
       Stmt.forwardDelegatecall
         (Expr.normalizeStorageValueUses StoragePosition.valueUse target)
+  | Stmt.loadRawSlot dest slot =>
+      Stmt.loadRawSlot dest
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse slot)
+  | Stmt.storeRawSlot slot value =>
+      Stmt.storeRawSlot
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse slot)
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse value)
+  | Stmt.revertRawBytes data =>
+      Stmt.revertRawBytes
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse data)
   | Stmt.checked stmt => Stmt.checked stmt.normalizeStorageValueUses
   | Stmt.unchecked stmt => Stmt.unchecked stmt.normalizeStorageValueUses
 
@@ -10998,6 +11016,43 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                         (RevertData.fromRawBytes output))
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.loadRawSlot dest slotExpr => do
+          match ← (Expr.eval context runtime slotExpr).caught with
+          | Except.ok (slotValue, runtime') =>
+              match slotValue.expectWord with
+              | Except.ok slot =>
+                  match runtime'.assignLocal? dest
+                      (Value.word (runtime'.state.loadSlot slot)) with
+                  | some updated => pure (Result.normal updated)
+                  | none =>
+                      pure (Result.reverted runtime' RevertData.typeMismatch)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.storeRawSlot slotExpr valueExpr => do
+          match ← (Expr.eval context runtime slotExpr).caught with
+          | Except.ok (slotValue, runtime') =>
+              match ← (Expr.eval context runtime' valueExpr).caught with
+              | Except.ok (value, runtime'') =>
+                  match slotValue.expectWord, value.expectWord with
+                  | Except.ok slot, Except.ok word =>
+                      pure
+                        (Result.normal
+                          { runtime'' with
+                            state := runtime''.state.storeSlot slot word })
+                  | Except.error err, _ => pure (Result.reverted runtime'' err)
+                  | _, Except.error err => pure (Result.reverted runtime'' err)
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.revertRawBytes dataExpr => do
+          match ← (Expr.eval context runtime dataExpr).caught with
+          | Except.ok (dataValue, runtime') =>
+              match dataValue.asBytes? with
+              | some bytes =>
+                  pure
+                    (Result.reverted runtime' (RevertData.fromRawBytes bytes))
+              | none =>
+                  pure (Result.reverted runtime' RevertData.typeMismatch)
           | Except.error err => pure (Result.reverted runtime err)
       | Stmt.checked body =>
           Stmt.eval fuel table { context with checked := true } runtime body

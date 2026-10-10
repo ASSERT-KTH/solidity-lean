@@ -40,12 +40,12 @@ FUNCTION_PARAM_COUNT_BY_ID: dict[int, int] = {}
 FUNCTION_NAME_BY_ID: dict[int, str] = {}
 
 
-SUPPORTED_NODE_TYPES: set[str] = {'Assignment', 'ArrayTypeName', 'BinaryOperation', 'Block', 'Break', 'Conditional', 'Continue', 'ContractDefinition', 'DoWhileStatement', 'ElementaryTypeName', 'ElementaryTypeNameExpression', 'EmitStatement', 'EnumDefinition', 'EnumValue', 'ErrorDefinition', 'EventDefinition', 'ExpressionStatement', 'ForStatement', 'ForwardingAssembly', 'FunctionCall', 'FunctionCallOptions', 'FunctionDefinition', 'FunctionTypeName', 'Identifier', 'IdentifierPath', 'IfStatement', 'IndexAccess', 'IndexRangeAccess', 'InheritanceSpecifier', 'Literal', 'Mapping', 'MemberAccess', 'ModifierDefinition', 'ModifierInvocation', 'NewExpression', 'OverrideSpecifier', 'ParameterList', 'PlaceholderStatement', 'PragmaDirective', 'Return', 'RevertStatement', 'SourceUnit', 'StructDefinition', 'TupleExpression', 'TryCatchClause', 'TryStatement', 'UncheckedBlock', 'UnaryOperation', 'UserDefinedTypeName', 'UserDefinedValueTypeDefinition', 'UsingForDirective', 'VariableDeclaration', 'VariableDeclarationStatement', 'WhileStatement'}
+SUPPORTED_NODE_TYPES: set[str] = {'Assignment', 'ArrayTypeName', 'BinaryOperation', 'Block', 'Break', 'Conditional', 'Continue', 'ContractDefinition', 'DoWhileStatement', 'ElementaryTypeName', 'ElementaryTypeNameExpression', 'EmitStatement', 'EnumDefinition', 'EnumValue', 'ErrorDefinition', 'EventDefinition', 'ExpressionStatement', 'ForStatement', 'FunctionCall', 'FunctionCallOptions', 'FunctionDefinition', 'FunctionTypeName', 'Identifier', 'IdentifierPath', 'IfStatement', 'IndexAccess', 'IndexRangeAccess', 'InheritanceSpecifier', 'Literal', 'Mapping', 'MemberAccess', 'ModifierDefinition', 'ModifierInvocation', 'NewExpression', 'OverrideSpecifier', 'ParameterList', 'PlaceholderStatement', 'PragmaDirective', 'RecognisedAssembly', 'Return', 'RevertStatement', 'SourceUnit', 'StructDefinition', 'TupleExpression', 'TryCatchClause', 'TryStatement', 'UncheckedBlock', 'UnaryOperation', 'UserDefinedTypeName', 'UserDefinedValueTypeDefinition', 'UsingForDirective', 'VariableDeclaration', 'VariableDeclarationStatement', 'WhileStatement'}
 METADATA_NODE_TYPES: set[str] = {'StructuredDocumentation'}
 EXCLUDED_NODE_TYPES: dict[str, str] = {'ImportDirective': 'import resolution is intentionally out of scope', 'InlineAssembly': 'inline assembly/Yul is intentionally out of scope'}
 SOURCE_CHILD_FIELDS: set[tuple[str, str]] = {('ArrayTypeName', 'baseType'), ('ArrayTypeName', 'length'), ('Assignment', 'leftHandSide'), ('Assignment', 'rightHandSide'), ('BinaryOperation', 'leftExpression'), ('BinaryOperation', 'rightExpression'), ('Block', 'statements'), ('Conditional', 'condition'), ('Conditional', 'falseExpression'), ('Conditional', 'trueExpression'), ('ContractDefinition', 'baseContracts'), ('ContractDefinition', 'nodes'), ('DoWhileStatement', 'body'), ('DoWhileStatement', 'condition'), ('ElementaryTypeNameExpression', 'typeName'), ('EmitStatement', 'eventCall'), ('EnumDefinition', 'members'), ('ErrorDefinition', 'parameters'), ('EventDefinition', 'parameters'), ('ExpressionStatement', 'expression'), ('ForStatement', 'body'), ('ForStatement', 'condition'), ('ForStatement', 'initializationExpression'), ('ForStatement', 'loopExpression'), ('FunctionCall', 'arguments'), ('FunctionCall', 'expression'), ('FunctionCallOptions', 'expression'), ('FunctionCallOptions', 'options'), ('FunctionDefinition', 'body'), ('FunctionDefinition', 'modifiers'), ('FunctionDefinition', 'overrides'), ('FunctionDefinition', 'parameters'), ('FunctionDefinition', 'returnParameters'), ('FunctionTypeName', 'parameterTypes'), ('FunctionTypeName', 'returnParameterTypes'), ('IfStatement', 'condition'), ('IfStatement', 'falseBody'), ('IfStatement', 'trueBody'), ('IndexAccess', 'baseExpression'), ('IndexAccess', 'indexExpression'), ('IndexRangeAccess', 'baseExpression'), ('IndexRangeAccess', 'endExpression'), ('IndexRangeAccess', 'startExpression'), ('InheritanceSpecifier', 'arguments'), ('InheritanceSpecifier', 'baseName'), ('Mapping', 'keyType'), ('Mapping', 'valueType'), ('MemberAccess', 'expression'), ('ModifierDefinition', 'body'), ('ModifierDefinition', 'overrides'), ('ModifierDefinition', 'parameters'), ('ModifierInvocation', 'arguments'), ('ModifierInvocation', 'modifierName'), ('NewExpression', 'typeName'), ('OverrideSpecifier', 'overrides'), ('ParameterList', 'parameters'), ('Return', 'expression'), ('RevertStatement', 'errorCall'), ('SourceUnit', 'nodes'), ('StructDefinition', 'members'), ('TryCatchClause', 'block'), ('TryCatchClause', 'parameters'), ('TryStatement', 'clauses'), ('TryStatement', 'externalCall'), ('TupleExpression', 'components'), ('UnaryOperation', 'subExpression'), ('UncheckedBlock', 'statements'), ('UserDefinedTypeName', 'pathNode'), ('UserDefinedValueTypeDefinition', 'underlyingType'), ('UsingForDirective', 'functionList.definition'), ('UsingForDirective', 'functionList.function'), ('UsingForDirective', 'libraryName'), ('UsingForDirective', 'typeName'), ('VariableDeclaration', 'overrides'), ('VariableDeclaration', 'typeName'), ('VariableDeclaration', 'value'), ('VariableDeclarationStatement', 'declarations'), ('VariableDeclarationStatement', 'initialValue'), ('WhileStatement', 'body'), ('WhileStatement', 'condition')}
 METADATA_CHILD_FIELDS: set[tuple[str, str]] = {('ContractDefinition', 'documentation'), ('EnumDefinition', 'documentation'), ('ErrorDefinition', 'documentation'), ('EventDefinition', 'documentation'), ('FunctionDefinition', 'documentation'), ('ModifierDefinition', 'documentation'), ('StructDefinition', 'documentation'), ('VariableDeclaration', 'documentation')}
-SOURCE_SCALAR_FIELDS: set[tuple[str, str]] = {('Assignment', 'operator'), ('BinaryOperation', 'operator'), ('ContractDefinition', 'abstract'), ('ContractDefinition', 'contractKind'), ('ContractDefinition', 'name'), ('ElementaryTypeName', 'name'), ('ElementaryTypeName', 'stateMutability'), ('EnumDefinition', 'name'), ('EnumValue', 'name'), ('ErrorDefinition', 'name'), ('EventDefinition', 'anonymous'), ('EventDefinition', 'name'), ('ForwardingAssembly', 'target'), ('FunctionCall', 'names'), ('FunctionCallOptions', 'names'), ('FunctionDefinition', 'kind'), ('FunctionDefinition', 'name'), ('FunctionDefinition', 'stateMutability'), ('FunctionDefinition', 'virtual'), ('FunctionDefinition', 'visibility'), ('FunctionTypeName', 'stateMutability'), ('FunctionTypeName', 'visibility'), ('Identifier', 'name'), ('IdentifierPath', 'name'), ('Literal', 'hexValue'), ('Literal', 'kind'), ('Literal', 'subdenomination'), ('Literal', 'value'), ('MemberAccess', 'memberName'), ('ModifierDefinition', 'name'), ('ModifierDefinition', 'virtual'), ('PragmaDirective', 'literals'), ('StructDefinition', 'name'), ('TryCatchClause', 'errorName'), ('TupleExpression', 'components'), ('TupleExpression', 'isInlineArray'), ('UnaryOperation', 'operator'), ('UnaryOperation', 'prefix'), ('UserDefinedValueTypeDefinition', 'name'), ('UsingForDirective', 'functionList.operator'), ('UsingForDirective', 'global'), ('VariableDeclaration', 'constant'), ('VariableDeclaration', 'indexed'), ('VariableDeclaration', 'mutability'), ('VariableDeclaration', 'name'), ('VariableDeclaration', 'stateVariable'), ('VariableDeclaration', 'storageLocation'), ('VariableDeclaration', 'visibility'), ('VariableDeclarationStatement', 'declarations')}
+SOURCE_SCALAR_FIELDS: set[tuple[str, str]] = {('Assignment', 'operator'), ('BinaryOperation', 'operator'), ('ContractDefinition', 'abstract'), ('ContractDefinition', 'contractKind'), ('ContractDefinition', 'name'), ('ElementaryTypeName', 'name'), ('ElementaryTypeName', 'stateMutability'), ('EnumDefinition', 'name'), ('EnumValue', 'name'), ('ErrorDefinition', 'name'), ('EventDefinition', 'anonymous'), ('EventDefinition', 'name'), ('FunctionCall', 'names'), ('FunctionCallOptions', 'names'), ('FunctionDefinition', 'kind'), ('FunctionDefinition', 'name'), ('FunctionDefinition', 'stateMutability'), ('FunctionDefinition', 'virtual'), ('FunctionDefinition', 'visibility'), ('FunctionTypeName', 'stateMutability'), ('FunctionTypeName', 'visibility'), ('Identifier', 'name'), ('IdentifierPath', 'name'), ('Literal', 'hexValue'), ('Literal', 'kind'), ('Literal', 'subdenomination'), ('Literal', 'value'), ('MemberAccess', 'memberName'), ('ModifierDefinition', 'name'), ('ModifierDefinition', 'virtual'), ('PragmaDirective', 'literals'), ('RecognisedAssembly', 'marker'), ('StructDefinition', 'name'), ('TryCatchClause', 'errorName'), ('TupleExpression', 'components'), ('TupleExpression', 'isInlineArray'), ('UnaryOperation', 'operator'), ('UnaryOperation', 'prefix'), ('UserDefinedValueTypeDefinition', 'name'), ('UsingForDirective', 'functionList.operator'), ('UsingForDirective', 'global'), ('VariableDeclaration', 'constant'), ('VariableDeclaration', 'indexed'), ('VariableDeclaration', 'mutability'), ('VariableDeclaration', 'name'), ('VariableDeclaration', 'stateVariable'), ('VariableDeclaration', 'storageLocation'), ('VariableDeclaration', 'visibility'), ('VariableDeclarationStatement', 'declarations')}
 ANALYSIS_SCALAR_FIELDS: set[tuple[str, str]] = {('ArrayTypeName', 'typeDescriptions.typeIdentifier'), ('ArrayTypeName', 'typeDescriptions.typeString'), ('Assignment', 'isConstant'), ('Assignment', 'isLValue'), ('Assignment', 'isPure'), ('Assignment', 'lValueRequested'), ('Assignment', 'typeDescriptions.typeIdentifier'), ('Assignment', 'typeDescriptions.typeString'), ('BinaryOperation', 'commonType.typeIdentifier'), ('BinaryOperation', 'commonType.typeString'), ('BinaryOperation', 'isConstant'), ('BinaryOperation', 'isLValue'), ('BinaryOperation', 'isPure'), ('BinaryOperation', 'lValueRequested'), ('BinaryOperation', 'function'), ('BinaryOperation', 'typeDescriptions.typeIdentifier'), ('BinaryOperation', 'typeDescriptions.typeString'), ('Conditional', 'isConstant'), ('Conditional', 'isLValue'), ('Conditional', 'isPure'), ('Conditional', 'lValueRequested'), ('Conditional', 'typeDescriptions.typeIdentifier'), ('Conditional', 'typeDescriptions.typeString'), ('ContractDefinition', 'fullyImplemented'), ('ElementaryTypeName', 'typeDescriptions.typeIdentifier'), ('ElementaryTypeName', 'typeDescriptions.typeString'), ('ElementaryTypeNameExpression', 'argumentTypes.typeIdentifier'), ('ElementaryTypeNameExpression', 'argumentTypes.typeString'), ('ElementaryTypeNameExpression', 'isConstant'), ('ElementaryTypeNameExpression', 'isLValue'), ('ElementaryTypeNameExpression', 'isPure'), ('ElementaryTypeNameExpression', 'lValueRequested'), ('ElementaryTypeNameExpression', 'typeDescriptions.typeIdentifier'), ('ElementaryTypeNameExpression', 'typeDescriptions.typeString'), ('ForStatement', 'isSimpleCounterLoop'), ('FunctionCall', 'argumentTypes.typeIdentifier'), ('FunctionCall', 'argumentTypes.typeString'), ('FunctionCall', 'isConstant'), ('FunctionCall', 'isLValue'), ('FunctionCall', 'isPure'), ('FunctionCall', 'kind'), ('FunctionCall', 'lValueRequested'), ('FunctionCall', 'tryCall'), ('FunctionCall', 'typeDescriptions.typeIdentifier'), ('FunctionCall', 'typeDescriptions.typeString'), ('FunctionCallOptions', 'argumentTypes.typeIdentifier'), ('FunctionCallOptions', 'argumentTypes.typeString'), ('FunctionCallOptions', 'isConstant'), ('FunctionCallOptions', 'isLValue'), ('FunctionCallOptions', 'isPure'), ('FunctionCallOptions', 'lValueRequested'), ('FunctionCallOptions', 'typeDescriptions.typeIdentifier'), ('FunctionCallOptions', 'typeDescriptions.typeString'), ('FunctionDefinition', 'implemented'), ('FunctionTypeName', 'typeDescriptions.typeIdentifier'), ('FunctionTypeName', 'typeDescriptions.typeString'), ('Identifier', 'argumentTypes.typeIdentifier'), ('Identifier', 'argumentTypes.typeString'), ('Identifier', 'typeDescriptions.typeIdentifier'), ('Identifier', 'typeDescriptions.typeString'), ('IndexAccess', 'argumentTypes.typeIdentifier'), ('IndexAccess', 'argumentTypes.typeString'), ('IndexAccess', 'isConstant'), ('IndexAccess', 'isLValue'), ('IndexAccess', 'isPure'), ('IndexAccess', 'lValueRequested'), ('IndexAccess', 'typeDescriptions.typeIdentifier'), ('IndexAccess', 'typeDescriptions.typeString'), ('IndexRangeAccess', 'isConstant'), ('IndexRangeAccess', 'isLValue'), ('IndexRangeAccess', 'isPure'), ('IndexRangeAccess', 'lValueRequested'), ('IndexRangeAccess', 'typeDescriptions.typeIdentifier'), ('IndexRangeAccess', 'typeDescriptions.typeString'), ('Literal', 'isConstant'), ('Literal', 'isLValue'), ('Literal', 'isPure'), ('Literal', 'lValueRequested'), ('Literal', 'typeDescriptions.typeIdentifier'), ('Literal', 'typeDescriptions.typeString'), ('Mapping', 'typeDescriptions.typeIdentifier'), ('Mapping', 'typeDescriptions.typeString'), ('MemberAccess', 'argumentTypes.typeIdentifier'), ('MemberAccess', 'argumentTypes.typeString'), ('MemberAccess', 'isConstant'), ('MemberAccess', 'isLValue'), ('MemberAccess', 'isPure'), ('MemberAccess', 'lValueRequested'), ('MemberAccess', 'typeDescriptions.typeIdentifier'), ('MemberAccess', 'typeDescriptions.typeString'), ('ModifierInvocation', 'kind'), ('NewExpression', 'argumentTypes.typeIdentifier'), ('NewExpression', 'argumentTypes.typeString'), ('NewExpression', 'isConstant'), ('NewExpression', 'isLValue'), ('NewExpression', 'isPure'), ('NewExpression', 'lValueRequested'), ('NewExpression', 'typeDescriptions.typeIdentifier'), ('NewExpression', 'typeDescriptions.typeString'), ('TupleExpression', 'argumentTypes.typeIdentifier'), ('TupleExpression', 'argumentTypes.typeString'), ('TupleExpression', 'isConstant'), ('TupleExpression', 'isLValue'), ('TupleExpression', 'isPure'), ('TupleExpression', 'lValueRequested'), ('TupleExpression', 'typeDescriptions.typeIdentifier'), ('TupleExpression', 'typeDescriptions.typeString'), ('UnaryOperation', 'function'), ('UnaryOperation', 'isConstant'), ('UnaryOperation', 'isLValue'), ('UnaryOperation', 'isPure'), ('UnaryOperation', 'lValueRequested'), ('UnaryOperation', 'typeDescriptions.typeIdentifier'), ('UnaryOperation', 'typeDescriptions.typeString'), ('UserDefinedTypeName', 'typeDescriptions.typeIdentifier'), ('UserDefinedTypeName', 'typeDescriptions.typeString'), ('VariableDeclaration', 'typeDescriptions.typeIdentifier'), ('VariableDeclaration', 'typeDescriptions.typeString')}
 METADATA_SCALAR_FIELDS: set[tuple[str, str]] = {('Mapping', 'keyName'), ('Mapping', 'keyNameLocation'), ('Mapping', 'valueName'), ('Mapping', 'valueNameLocation'), ('ModifierDefinition', 'baseModifiers'), ('ModifierDefinition', 'visibility'), ('SourceUnit', 'absolutePath'), ('SourceUnit', 'license'), ('StructDefinition', 'visibility'), ('StructuredDocumentation', 'text'), ('VariableDeclarationStatement', 'assignments')}
 METADATA_SCALAR_FIELD_SUFFIXES: set[str] = {'baseFunctions', 'canonicalName', 'contractDependencies', 'errorSelector', 'eventSelector', 'functionReturnParameters', 'functionSelector', 'id', 'linearizedBaseContracts', 'memberLocation', 'nameLocation', 'nameLocations', 'overloadedDeclarations', 'referencedDeclaration', 'scope', 'src', 'usedErrors', 'usedEvents'}
@@ -523,9 +523,94 @@ def forwarding_assembly_target(yul: dict[str, Any]) -> tuple[str, str] | None:
     return target, str(ident.get("src", ""))
 
 
-def rewrite_forwarding_assembly(ast: dict[str, Any]) -> None:
-    """Replace every InlineAssembly node that is the canonical forwarding idiom with a
-    `ForwardingAssembly` node, in place. The target must resolve (solc's
+def _yul_ident_src(node: dict[str, Any]) -> tuple[str, str] | None:
+    if node.get("nodeType") != "YulIdentifier" or not isinstance(node.get("name"), str):
+        return None
+    return node["name"], str(node.get("src", ""))
+
+
+def _sole_stmt(yul: dict[str, Any]) -> dict[str, Any] | None:
+    stmts = yul.get("statements", [])
+    return stmts[0] if len(stmts) == 1 else None
+
+
+def storage_load_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
+    """`dest := sload(slot)` -> marker and the (name, src) of each external operand."""
+    stmt = _sole_stmt(yul)
+    if not stmt or stmt.get("nodeType") != "YulAssignment" or len(stmt.get("variableNames", [])) != 1:
+        return None
+    dest = _yul_ident_src(stmt["variableNames"][0])
+    value = stmt.get("value") or {}
+    args = value.get("arguments", [])
+    if (dest is None or _yul_norm(value) is None or (value.get("functionName") or {}).get("name") != "sload"
+            or len(args) != 1 or (slot := _yul_ident_src(args[0])) is None):
+        return None
+    return f"storage-load:{dest[0]}:{slot[0]}", [dest, slot]
+
+
+def storage_store_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
+    """`sstore(slot, value)`."""
+    stmt = _sole_stmt(yul)
+    if not stmt or stmt.get("nodeType") != "YulExpressionStatement":
+        return None
+    call = stmt.get("expression") or {}
+    args = call.get("arguments", [])
+    if (call.get("nodeType") != "YulFunctionCall" or (call.get("functionName") or {}).get("name") != "sstore"
+            or len(args) != 2):
+        return None
+    slot, value = _yul_ident_src(args[0]), _yul_ident_src(args[1])
+    if slot is None or value is None:
+        return None
+    return f"storage-store:{slot[0]}:{value[0]}", [slot, value]
+
+
+def revert_bytes_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
+    """`let n := mload(b) revert(add(32, b), n)`: revert with the bytes of a `bytes memory` b."""
+    stmts = yul.get("statements", [])
+    if len(stmts) != 2 or stmts[0].get("nodeType") != "YulVariableDeclaration":
+        return None
+    decl = stmts[0]
+    if len(decl.get("variables", [])) != 1:
+        return None
+    size = decl["variables"][0].get("name")
+    load = decl.get("value") or {}
+    load_args = load.get("arguments", [])
+    if (load.get("nodeType") != "YulFunctionCall" or (load.get("functionName") or {}).get("name") != "mload"
+            or len(load_args) != 1 or (b1 := _yul_ident_src(load_args[0])) is None):
+        return None
+    rev = (stmts[1].get("expression") or {}) if stmts[1].get("nodeType") == "YulExpressionStatement" else {}
+    rev_args = rev.get("arguments", [])
+    if (rev.get("nodeType") != "YulFunctionCall" or (rev.get("functionName") or {}).get("name") != "revert"
+            or len(rev_args) != 2 or _yul_norm(rev_args[1]) != ("v", size)):
+        return None
+    offset = rev_args[0]
+    add_args = offset.get("arguments", []) if (offset.get("functionName") or {}).get("name") == "add" else []
+    if len(add_args) != 2:
+        return None
+    lit = [a for a in add_args if _yul_norm(a) == ("n", 32)]
+    ident = [a for a in add_args if a.get("nodeType") == "YulIdentifier"]
+    if len(lit) != 1 or len(ident) != 1 or (b2 := _yul_ident_src(ident[0])) is None or b2[0] != b1[0]:
+        return None
+    if b1[0] == size:
+        return None
+    return f"revert-bytes:{b1[0]}", [b1, b2]
+
+
+def recognise_assembly(node: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
+    """Marker (see `RecognisedAssembly` in Ast.lean) and external operands of an
+    InlineAssembly node, if it is exactly one recognised idiom."""
+    yul = node.get("AST") or {}
+    if (fwd := forwarding_assembly_target(yul)) is not None:
+        return FORWARDING_ASSEMBLY_PREFIX + fwd[0], [(fwd[0], fwd[1])]
+    for matcher in (storage_load_assembly, storage_store_assembly, revert_bytes_assembly):
+        if (hit := matcher(yul)) is not None:
+            return hit
+    return None
+
+
+def rewrite_recognised_assembly(ast: dict[str, Any]) -> None:
+    """Replace every InlineAssembly node that is exactly one recognised idiom with a
+    `RecognisedAssembly` node (`marker`), in place. Every operand must resolve (solc's
     `externalReferences`) to a local variable or parameter, never to state."""
     nodes_by_id: dict[int, dict[str, Any]] = {}
 
@@ -539,39 +624,46 @@ def rewrite_forwarding_assembly(ast: dict[str, Any]) -> None:
             for child in value:
                 index(child)
 
-    def is_local(node: dict[str, Any]) -> bool:
-        refs = node.get("externalReferences", [])
-        match = forwarding_assembly_target(node.get("AST") or {})
+    def marker(node: dict[str, Any]) -> str | None:
+        match = recognise_assembly(node)
         if match is None:
-            return False
-        target, src = match
-        hits = [r for r in refs if r.get("src") == src]
-        if len(hits) != 1 or hits[0].get("isSlot") or hits[0].get("isOffset"):
-            return False
-        decl = nodes_by_id.get(hits[0].get("declaration"))
-        return bool(decl and decl.get("nodeType") == "VariableDeclaration"
-                    and not decl.get("stateVariable") and decl.get("name") == target)
+            return None
+        text, operands = match
+        for name, src in operands:
+            hits = [r for r in node.get("externalReferences", []) if r.get("src") == src]
+            if len(hits) != 1 or hits[0].get("isSlot") or hits[0].get("isOffset"):
+                return None
+            decl = nodes_by_id.get(hits[0].get("declaration"))
+            if not (decl and decl.get("nodeType") == "VariableDeclaration"
+                    and not decl.get("stateVariable") and decl.get("name") == name):
+                return None
+        return text
+
+    def replacement(child: Any) -> dict[str, Any] | None:
+        if isinstance(child, dict) and child.get("nodeType") == "InlineAssembly" and (text := marker(child)):
+            return {"nodeType": "RecognisedAssembly", "id": child.get("id"),
+                    "src": child.get("src"), "marker": text}
+        return None
 
     def rewrite(value: Any) -> None:
         if isinstance(value, dict):
             for key, child in list(value.items()):
-                if isinstance(child, dict) and child.get("nodeType") == "InlineAssembly" and is_local(child):
-                    target, _ = forwarding_assembly_target(child["AST"])  # type: ignore[misc]
-                    value[key] = {"nodeType": "ForwardingAssembly", "id": child.get("id"),
-                                  "src": child.get("src"), "target": target}
+                if (new := replacement(child)) is not None:
+                    value[key] = new
                 else:
                     rewrite(child)
         elif isinstance(value, list):
             for i, child in enumerate(value):
-                if isinstance(child, dict) and child.get("nodeType") == "InlineAssembly" and is_local(child):
-                    target, _ = forwarding_assembly_target(child["AST"])  # type: ignore[misc]
-                    value[i] = {"nodeType": "ForwardingAssembly", "id": child.get("id"),
-                                "src": child.get("src"), "target": target}
+                if (new := replacement(child)) is not None:
+                    value[i] = new
                 else:
                     rewrite(child)
 
     index(ast)
     rewrite(ast)
+
+
+rewrite_forwarding_assembly = rewrite_recognised_assembly  # earlier name, kept for callers
 
 
 def guard_no_unsupported_nodes(ast: dict[str, Any]) -> None:
@@ -1666,11 +1758,11 @@ def stmt_from_node(node: dict[str, Any]) -> str:
         if not isinstance(error_call, dict):
             fail("RevertStatement missing errorCall")
         return f"Stmt.revertCall ({expr_from_node(error_call)})"
-    if node_type == "ForwardingAssembly":
-        target = node.get("target")
-        if not isinstance(target, str) or not target:
-            fail("ForwardingAssembly.target must be a name")
-        return f"Stmt.inlineAssembly {lean_string(FORWARDING_ASSEMBLY_PREFIX + target)}"
+    if node_type == "RecognisedAssembly":
+        marker = node.get("marker")
+        if not isinstance(marker, str) or not marker:
+            fail("RecognisedAssembly.marker must be a non-empty string")
+        return f"Stmt.inlineAssembly {lean_string(marker)}"
     if node_type == "Break":
         return "Stmt.break"
     if node_type == "Continue":
@@ -2301,7 +2393,7 @@ def render_module(ast: dict[str, Any], source_name: str, contract_name: str, nam
     global FUNCTION_NAME_BY_ID
     FUNCTION_PARAM_COUNT_BY_ID = collect_function_param_counts(ast)
     FUNCTION_NAME_BY_ID = collect_function_names_by_id(ast)
-    rewrite_forwarding_assembly(ast)
+    rewrite_recognised_assembly(ast)
     guard_no_unsupported_nodes(ast)
     contract = find_contract(ast, contract_name)
     contracts = contract_definitions(ast)

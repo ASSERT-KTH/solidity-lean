@@ -318,6 +318,35 @@ def Stmt.forwardingAssemblyTarget? (code : String) : Option Name :=
   else
     none
 
+/-- The assembly idioms the importer recognises (all operands are locals):
+    * `forwardDelegatecall t`: the canonical proxy forwarding (above);
+    * `storageLoad d s`: `d := sload(s)`;
+    * `storageStore s v`: `sstore(s, v)`;
+    * `revertBytes b`: `let n := mload(b) revert(add(32, b), n)`, the revert-data
+      bubble of `Address.verifyCallResult` for a `bytes memory` local `b`. -/
+inductive RecognisedAssembly where
+  | forwardDelegatecall : Name -> RecognisedAssembly
+  | storageLoad : Name -> Name -> RecognisedAssembly
+  | storageStore : Name -> Name -> RecognisedAssembly
+  | revertBytes : Name -> RecognisedAssembly
+  deriving Repr
+
+/-- Parse an importer marker (`forward-delegatecall:t`, `storage-load:d:s`,
+    `storage-store:s:v`, `revert-bytes:b`); every operand must be non-empty. -/
+def Stmt.recognisedAssembly? (code : String) : Option RecognisedAssembly :=
+  match code.splitOn ":" with
+  | ["forward-delegatecall", t] =>
+      if t.isEmpty then none else some (RecognisedAssembly.forwardDelegatecall t)
+  | ["storage-load", d, s] =>
+      if d.isEmpty || s.isEmpty then none
+      else some (RecognisedAssembly.storageLoad d s)
+  | ["storage-store", s, v] =>
+      if s.isEmpty || v.isEmpty then none
+      else some (RecognisedAssembly.storageStore s v)
+  | ["revert-bytes", b] =>
+      if b.isEmpty then none else some (RecognisedAssembly.revertBytes b)
+  | _ => none
+
 structure ModifierInvocation where
   target : Path
   args : List Arg := []

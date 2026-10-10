@@ -11260,8 +11260,30 @@ def checkStmt (env : CheckEnv) :
       -- Only the importer's forwarding-assembly marker (`forwardingAssemblyPrefix`):
       -- a delegatecall to an address-typed local, so a low-level
       -- `delegatecall` mutability rule applies.
-      match Solidity.Stmt.forwardingAssemblyTarget? code with
-      | some name =>
+      let unsupported : Except TypeError CheckedStmt :=
+        Except.error (TypeError.unsupported "inline assembly")
+      -- Operands are locals of exactly word width: 256-bit words, `bytes32`, addresses
+      -- (narrower types would need Yul's dirty-bits semantics).
+      let isWord (ty : Solidity.Ty) : Bool :=
+        match ty with
+        | Solidity.Ty.address _ => true
+        | Solidity.Ty.uint 256 => true
+        | Solidity.Ty.bytesN 32 => true
+        | Solidity.Ty.fixedBytes 32 => true
+        | _ => false
+      let isSlot (ty : Solidity.Ty) : Bool :=
+        match ty with
+        | Solidity.Ty.uint 256 => true
+        | Solidity.Ty.bytesN 32 => true
+        | Solidity.Ty.fixedBytes 32 => true
+        | _ => false
+      let wordLocal (name : Name) (ok : Solidity.Ty -> Bool) : Bool :=
+        env.isLocalName name &&
+          (match env.lookupVar? name with
+           | some ty => ok ty
+           | none => false)
+      match Solidity.Stmt.recognisedAssembly? code with
+      | some (Solidity.RecognisedAssembly.forwardDelegatecall name) =>
           match env.lookupVar? name with
           | some ty => do
               require (ty.isAddressLike env.types)
@@ -11269,8 +11291,28 @@ def checkStmt (env : CheckEnv) :
               requireCallMutabilityAllowed env
                 Solidity.StateMutability.nonpayable
               Except.ok { source := stmt }
-          | none => Except.error (TypeError.unsupported "inline assembly")
-      | none => Except.error (TypeError.unsupported "inline assembly")
+          | none => unsupported
+      | some (Solidity.RecognisedAssembly.storageLoad dest slot) =>
+          if wordLocal dest isWord && wordLocal slot isSlot then
+            Except.ok { source := stmt }
+          else unsupported
+      | some (Solidity.RecognisedAssembly.storageStore slot value) =>
+          if wordLocal slot isSlot && wordLocal value isWord then do
+            requireStateWriteAllowed env
+            Except.ok { source := stmt }
+          else unsupported
+      | some (Solidity.RecognisedAssembly.revertBytes data) =>
+          let memoryBytes :=
+            env.isLocalName data &&
+              (match env.lookupVar? data with
+               | some Solidity.Ty.bytes => true
+               | _ => false) &&
+              (match env.lookupLocalDataLocation? data with
+               | some Solidity.DataLocation.storage => false
+               | some Solidity.DataLocation.calldata => false
+               | _ => true)
+          if memoryBytes then Except.ok { source := stmt } else unsupported
+      | none => unsupported
   | stmt@Solidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
       require (!env.inUnchecked) (TypeError.unsupported

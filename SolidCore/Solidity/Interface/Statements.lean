@@ -3518,14 +3518,25 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   -- reached identically through the env-less fallback when a ctx was
   -- present.
   match (match stmt with
-         | Stmt.inlineAssembly code => Stmt.forwardingAssemblyTarget? code
+         | Stmt.inlineAssembly code => Stmt.recognisedAssembly? code
          | _ => none) with
-  -- The importer's forwarding-assembly marker (`forwardingAssemblyPrefix`):
-  -- exactly the canonical proxy `delegatecall` forwarding, whose success path
-  -- halts the whole external frame (`Result.exited`).
-  | some target =>
+  -- The importer's assembly markers (`RecognisedAssembly`): exactly the canonical
+  -- proxy `delegatecall` forwarding (its success path halts the whole external
+  -- frame, `Result.exited`), `d := sload(s)`, `sstore(s, v)` and the revert-data
+  -- bubble. All operands are locals.
+  | some (RecognisedAssembly.forwardDelegatecall target) =>
       some (SolidCore.Solidity.Source.Stmt.forwardDelegatecall
         (SolidCore.Solidity.Source.Expr.var target))
+  | some (RecognisedAssembly.storageLoad dest slot) =>
+      some (SolidCore.Solidity.Source.Stmt.loadRawSlot dest
+        (SolidCore.Solidity.Source.Expr.var slot))
+  | some (RecognisedAssembly.storageStore slot value) =>
+      some (SolidCore.Solidity.Source.Stmt.storeRawSlot
+        (SolidCore.Solidity.Source.Expr.var slot)
+        (SolidCore.Solidity.Source.Expr.var value))
+  | some (RecognisedAssembly.revertBytes data) =>
+      some (SolidCore.Solidity.Source.Stmt.revertRawBytes
+        (SolidCore.Solidity.Source.Expr.var data))
   | none =>
   match stmt with
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
