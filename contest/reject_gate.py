@@ -38,6 +38,7 @@ false PASS would let an adversary bank a fake divergence, so the bias is correct
 from __future__ import annotations
 
 import argparse
+import copy
 import importlib.util
 import inspect
 import json
@@ -200,8 +201,14 @@ def _yul_node_types(node_type: str) -> bool:
 
 
 def detect_inline_assembly(entry: reg.ExclusionEntry, src: SourceAst) -> list[Hit]:
+    # The canonical proxy forwarding assembly is in scope: the importer recognises it
+    # (`rewrite_forwarding_assembly`) and the interpreter executes it exactly.
+    ast = src.ast
+    if hasattr(_IMPORTER, "rewrite_forwarding_assembly"):
+        ast = copy.deepcopy(src.ast)
+        _IMPORTER.rewrite_forwarding_assembly(ast)
     hits = []
-    for node in iter_nodes(src.ast):
+    for node in iter_nodes(ast):
         nt = node.get("nodeType")
         if not isinstance(nt, str):
             continue
