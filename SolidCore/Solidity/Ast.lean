@@ -303,6 +303,21 @@ inductive CatchClause where
 
 end
 
+/-- The importer replaces the canonical proxy forwarding assembly (solc's
+    structured Yul AST of `calldatacopy; delegatecall(gas, T, 0, calldatasize, 0,
+    0); returndatacopy; revert/return` with `T` a local) by
+    `Stmt.inlineAssembly "forward-delegatecall:T"`. No other assembly is accepted:
+    the type check and the lowering recognise exactly this marker. -/
+def forwardingAssemblyPrefix : String := "forward-delegatecall:"
+
+/-- The delegatecall target local named by a forwarding-assembly marker. -/
+def Stmt.forwardingAssemblyTarget? (code : String) : Option Name :=
+  if code.startsWith forwardingAssemblyPrefix then
+    let name := (code.drop forwardingAssemblyPrefix.length).toString
+    if name.isEmpty then none else some name
+  else
+    none
+
 structure ModifierInvocation where
   target : Path
   args : List Arg := []

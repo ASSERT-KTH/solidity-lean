@@ -11256,8 +11256,21 @@ def checkStmt (env : CheckEnv) :
         "nested unchecked block")
       let _ ← checkStmt env.enterUnchecked body
       Except.ok { source := stmt }
-  | Solidity.Stmt.inlineAssembly _ =>
-      Except.error (TypeError.unsupported "inline assembly")
+  | stmt@(Solidity.Stmt.inlineAssembly code) =>
+      -- Only the importer's forwarding-assembly marker (`forwardingAssemblyPrefix`):
+      -- a delegatecall to an address-typed local, so a low-level
+      -- `delegatecall` mutability rule applies.
+      match Solidity.Stmt.forwardingAssemblyTarget? code with
+      | some name =>
+          match env.lookupVar? name with
+          | some ty => do
+              require (ty.isAddressLike env.types)
+                (TypeError.expectedType (Solidity.Ty.address false) ty)
+              requireCallMutabilityAllowed env
+                Solidity.StateMutability.nonpayable
+              Except.ok { source := stmt }
+          | none => Except.error (TypeError.unsupported "inline assembly")
+      | none => Except.error (TypeError.unsupported "inline assembly")
   | stmt@Solidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
       require (!env.inUnchecked) (TypeError.unsupported

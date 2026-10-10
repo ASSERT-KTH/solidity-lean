@@ -3517,6 +3517,16 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   -- `lowerCore? (some ctx)`) with `lowerCore? none`; the four constants were
   -- reached identically through the env-less fallback when a ctx was
   -- present.
+  match (match stmt with
+         | Stmt.inlineAssembly code => Stmt.forwardingAssemblyTarget? code
+         | _ => none) with
+  -- The importer's forwarding-assembly marker (`forwardingAssemblyPrefix`):
+  -- exactly the canonical proxy `delegatecall` forwarding, whose success path
+  -- halts the whole external frame (`Result.exited`).
+  | some target =>
+      some (SolidCore.Solidity.Source.Stmt.forwardDelegatecall
+        (SolidCore.Solidity.Source.Expr.var target))
+  | none =>
   match stmt with
   | Stmt.empty => some SolidCore.Solidity.Source.Stmt.skip
   | Stmt.inlineAssembly "" => some SolidCore.Solidity.Source.Stmt.skip
