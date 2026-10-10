@@ -11334,6 +11334,34 @@ def checkStmt (env : CheckEnv) :
                 Except.ok { source := stmt }
               else unsupported
           | _, _, _ => unsupported
+      | some (Solidity.RecognisedAssembly.storagePointerAt r slot) =>
+          -- `r` is a local struct storage pointer (a `T storage` return or local),
+          -- `slot` a 256-bit word local.
+          let storagePointer (name : Name) : Bool :=
+            env.isLocalName name &&
+              (env.lookupLocalDataLocation? name == some Solidity.DataLocation.storage ||
+                env.isLocalStorageRef name || env.isPointerReturnName name)
+          let isStruct :=
+            match env.lookupVar? r with
+            | some (Solidity.Ty.struct _ _) => true
+            | some (Solidity.Ty.user _) => true
+            | _ => false
+          if storagePointer r && isStruct && wordLocal slot isSlot then
+            Except.ok { source := stmt }
+          else unsupported
+      | some (Solidity.RecognisedAssembly.storagePointerFrom r src) =>
+          let storagePointer (name : Name) : Bool :=
+            env.isLocalName name &&
+              (env.lookupLocalDataLocation? name == some Solidity.DataLocation.storage ||
+                env.isLocalStorageRef name || env.isPointerReturnName name)
+          let isStruct :=
+            match env.lookupVar? r with
+            | some (Solidity.Ty.struct _ _) => true
+            | some (Solidity.Ty.user _) => true
+            | _ => false
+          if storagePointer r && isStruct && storagePointer src then
+            Except.ok { source := stmt }
+          else unsupported
       | none => unsupported
   | stmt@Solidity.Stmt.modifierPlaceholder => do
       require env.inModifier TypeError.modifierPlaceholderOutsideModifier
@@ -13630,8 +13658,13 @@ def Stmt.pointerReturnFlowFuel :
   | fuel + 1, env, requirements, placeholder, assigned,
       Solidity.Stmt.unchecked body =>
       Stmt.pointerReturnFlowFuel fuel env requirements placeholder assigned body
-  | _ + 1, _, _, _, _, Solidity.Stmt.inlineAssembly _ =>
-      { unsafeReturn := true }
+  | _ + 1, _, _, _, assigned, Solidity.Stmt.inlineAssembly code =>
+      -- `r.slot := ...` binds the storage pointer `r` (a definite assignment).
+      match Solidity.Stmt.recognisedAssembly? code with
+      | some (Solidity.RecognisedAssembly.storagePointerAt r _)
+      | some (Solidity.RecognisedAssembly.storagePointerFrom r _) =>
+          { normal? := some (PointerReturnAssigned.add assigned r) }
+      | _ => { unsafeReturn := true }
   | fuel + 1, env, requirements, placeholder, assigned,
       Solidity.Stmt.modifierPlaceholder =>
       match placeholder with
@@ -14074,8 +14107,12 @@ def Stmt.pointerLocalFlowFuel :
   | fuel + 1, name, assigned,
       Solidity.Stmt.unchecked body =>
       Stmt.pointerLocalFlowFuel fuel name assigned body
-  | _ + 1, _, _, Solidity.Stmt.inlineAssembly _ =>
-      { unsafeReturn := true }
+  | _ + 1, name, assigned, Solidity.Stmt.inlineAssembly code =>
+      match Solidity.Stmt.recognisedAssembly? code with
+      | some (Solidity.RecognisedAssembly.storagePointerAt r _)
+      | some (Solidity.RecognisedAssembly.storagePointerFrom r _) =>
+          { normal? := some (if r == name then PointerReturnAssigned.add assigned r else assigned) }
+      | _ => { unsafeReturn := true }
   | _ + 1, _, assigned, Solidity.Stmt.modifierPlaceholder =>
       { normal? := some assigned }
 

@@ -604,9 +604,26 @@ def memory_array_cast_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str
         return None
     dest = _yul_ident_src(stmt["variableNames"][0])
     src = _yul_ident_src(stmt.get("value") or {})
-    if dest is None or src is None or dest[0] == src[0]:
-        return None
+    if dest is None or src is None or dest[0] == src[0] or "." in dest[0] or "." in src[0]:
+        return None  # `x.slot` / `x.offset` are storage-pointer accesses, not plain locals
     return f"memory-array-cast:{dest[0]}:{src[0]}", [dest, src]
+
+
+def storage_pointer_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[Any, ...]]] | None:
+    """`r.slot := slot` and `r.slot := p.slot`. Operands carry a third element: whether the
+    reference must be a `.slot` access (solc's `isSlot`)."""
+    stmt = _sole_stmt(yul)
+    if not stmt or stmt.get("nodeType") != "YulAssignment" or len(stmt.get("variableNames", [])) != 1:
+        return None
+    dest = _yul_ident_src(stmt["variableNames"][0])
+    value = _yul_ident_src(stmt.get("value") or {})
+    if dest is None or value is None or not dest[0].endswith(".slot"):
+        return None
+    pointer = (dest[0][:-len(".slot")], dest[1], True)
+    if value[0].endswith(".slot"):
+        source = (value[0][:-len(".slot")], value[1], True)
+        return f"storage-pointer-from:{pointer[0]}:{source[0]}", [pointer, source]
+    return f"storage-pointer:{pointer[0]}:{value[0]}", [pointer, (value[0], value[1], False)]
 
 
 def _word_array_element(decl: dict[str, Any]) -> str | None:
@@ -623,14 +640,14 @@ def _word_array_element(decl: dict[str, Any]) -> str | None:
     return name if name in ("uint256", "bytes32") else None
 
 
-def recognise_assembly(node: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
+def recognise_assembly(node: dict[str, Any]) -> tuple[str, list[tuple[Any, ...]]] | None:
     """Marker (see `RecognisedAssembly` in Ast.lean) and external operands of an
     InlineAssembly node, if it is exactly one recognised idiom."""
     yul = node.get("AST") or {}
     if (fwd := forwarding_assembly_target(yul)) is not None:
         return FORWARDING_ASSEMBLY_PREFIX + fwd[0], [(fwd[0], fwd[1])]
     for matcher in (storage_load_assembly, storage_store_assembly, revert_bytes_assembly,
-                    memory_array_cast_assembly):
+                    memory_array_cast_assembly, storage_pointer_assembly):
         if (hit := matcher(yul)) is not None:
             return hit
     return None
@@ -662,14 +679,18 @@ def rewrite_recognised_assembly(ast: dict[str, Any]) -> None:
             return None
         text, operands = match
         decls = []
-        for name, src in operands:
+        for name, src, *want_slot in operands:
             hits = [r for r in node.get("externalReferences", []) if r.get("src") == src]
-            if len(hits) != 1 or hits[0].get("isSlot") or hits[0].get("isOffset"):
+            slot_access = bool(want_slot and want_slot[0])
+            if (len(hits) != 1 or hits[0].get("isOffset") or bool(hits[0].get("isSlot")) != slot_access
+                    or (slot_access and hits[0].get("suffix") != "slot")):
                 return None
             decl = nodes_by_id.get(hits[0].get("declaration"))
             if not (decl and decl.get("nodeType") == "VariableDeclaration"
                     and not decl.get("stateVariable") and decl.get("name") == name):
                 return None
+            if slot_access and decl.get("storageLocation") != "storage":
+                return None  # `.slot` of a memory/stack variable is not a storage pointer
             decls.append(decl)
         if text.startswith("memory-array-cast:"):
             # Both are word arrays in memory, and the source is never read by Solidity code:

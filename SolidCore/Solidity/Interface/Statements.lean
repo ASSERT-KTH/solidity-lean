@@ -3537,6 +3537,19 @@ def Stmt.lowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
   | some (RecognisedAssembly.revertBytes data) =>
       some (SolidCore.Solidity.Source.Stmt.revertRawBytes
         (SolidCore.Solidity.Source.Expr.var data))
+  -- `r.slot := ...` on a struct storage pointer: the layout comes from `r`'s declared
+  -- type; without a lowering context there is no type to read it from.
+  | some (RecognisedAssembly.storagePointerAt r slot) => do
+      let ctx ← ctx?
+      let ty ← TypeEnv.lookup? ctx.env r
+      let layout ← Ty.toCoreStorageLayout? ty
+      some (SolidCore.Solidity.Source.Stmt.bindRawStorageRef r
+        (SolidCore.Solidity.Source.Expr.var slot) layout)
+  | some (RecognisedAssembly.storagePointerFrom r src) => do
+      let ctx ← ctx?
+      let ty ← TypeEnv.lookup? ctx.env r
+      let layout ← Ty.toCoreStorageLayout? ty
+      some (SolidCore.Solidity.Source.Stmt.rebindStorageRef r src layout)
   | some (RecognisedAssembly.castMemoryArray dest src elem) =>
       some (SolidCore.Solidity.Source.Stmt.castMemoryArray dest src
         (if elem == "address" then SolidCore.Solidity.Source.Ty.address

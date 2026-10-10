@@ -326,13 +326,19 @@ def Stmt.forwardingAssemblyTarget? (code : String) : Option Name :=
       bubble of `Address.verifyCallResult` for a `bytes memory` local `b`;
     * `castMemoryArray d s e`: `d := s` between one-dimensional dynamic memory arrays of
       words, reinterpreted as elements `e` (`address`/`uint256`/`bytes32`), `s` unused
-      afterwards (`EnumerableSet.values`). -/
+      afterwards (`EnumerableSet.values`);
+    * `storagePointerAt r s`: `r.slot := s`, binding the storage pointer `r` (a struct) to
+      the raw slot `s` (a `uint256`/`bytes32` local), OpenZeppelin `StorageSlot.get*Slot`;
+    * `storagePointerFrom r p`: `r.slot := p.slot`, re-binding `r` to the slot of another
+      storage pointer `p`. -/
 inductive RecognisedAssembly where
   | forwardDelegatecall : Name -> RecognisedAssembly
   | storageLoad : Name -> Name -> RecognisedAssembly
   | storageStore : Name -> Name -> RecognisedAssembly
   | revertBytes : Name -> RecognisedAssembly
   | castMemoryArray : Name -> Name -> String -> RecognisedAssembly
+  | storagePointerAt : Name -> Name -> RecognisedAssembly
+  | storagePointerFrom : Name -> Name -> RecognisedAssembly
   deriving Repr
 
 /-- Parse an importer marker (`forward-delegatecall:t`, `storage-load:d:s`,
@@ -353,6 +359,11 @@ def Stmt.recognisedAssembly? (code : String) : Option RecognisedAssembly :=
       if d.isEmpty || s.isEmpty || d == s ||
           !(elem == "address" || elem == "uint256" || elem == "bytes32") then none
       else some (RecognisedAssembly.castMemoryArray d s elem)
+  | ["storage-pointer", r, s] =>
+      if r.isEmpty || s.isEmpty then none else some (RecognisedAssembly.storagePointerAt r s)
+  | ["storage-pointer-from", r, s] =>
+      if r.isEmpty || s.isEmpty || r == s then none
+      else some (RecognisedAssembly.storagePointerFrom r s)
   | _ => none
 
 structure ModifierInvocation where
