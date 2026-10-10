@@ -330,11 +330,17 @@ def encodeValuesAux? :
         | _, _ => none
   | _, _, _ => none
 
-def encodeValues? (tys : List Ty) (values : List Value) : Option Bytes := do
-  let headWords ← Ty.listAbiHeadWords? tys
-  match encodeValuesAux? tys values (wordBytes * headWords) with
-  | some (heads, tails, _) => some (heads ++ tails)
-  | none => none
+def encodeValues? (tys : List Ty) (values : List Value) : Option Bytes :=
+  match tys, values with
+  -- A body that halted with raw output (`Result.exited`, the proxy forwarding
+  -- assembly) hands a lone `bytes` value to a function declaring no return:
+  -- the output is that payload verbatim, no head/length.
+  | [], [Value.bytes bytes] => some (normalizeBytes bytes)
+  | _, _ => do
+      let headWords ← Ty.listAbiHeadWords? tys
+      match encodeValuesAux? tys values (wordBytes * headWords) with
+      | some (heads, tails, _) => some (heads ++ tails)
+      | none => none
 
 -- The `lazy` flag marks a *calldata* parameter (vs a `memory`-location one,
 -- which solc validates eagerly). When set, structurally-malformed inner

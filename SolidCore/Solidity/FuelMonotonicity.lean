@@ -153,6 +153,7 @@ private theorem evalList_mono_of (n m : Nat)
     | normal runtime' => exact ihRest runtime' hv
     | returned runtime' values => rfl
     | selfdestructed runtime' => rfl
+    | exited runtime' out => rfl
     | reverted runtime' err => rfl
     | broke runtime' => rfl
     | continued runtime' => rfl
@@ -199,6 +200,7 @@ private theorem evalWhile_mono_step (n m : Nat)
         | continued r2 => exact hWhile _ _ _ _ _ hw2
         | returned r2 vs => rfl
         | selfdestructed r2 => rfl
+        | exited r2 out => rfl
         | reverted r2 e => rfl
         | broke r2 => rfl
 
@@ -226,6 +228,7 @@ private theorem evalDoWhile_mono_step (n m : Nat)
   cases v with
   | returned r' vs => rfl
   | selfdestructed r' => rfl
+  | exited r' out => rfl
   | reverted r' e => rfl
   | broke r' => rfl
   | normal runtime' =>
@@ -308,6 +311,7 @@ private theorem evalFor_mono_step (n m : Nat)
         cases w with
         | returned r2 vs => rfl
         | selfdestructed r2 => rfl
+        | exited r2 out => rfl
         | reverted r2 e => rfl
         | broke r2 => rfl
         | normal r2 =>
@@ -319,6 +323,7 @@ private theorem evalFor_mono_step (n m : Nat)
           | normal posted => exact hFor _ _ _ _ _ _ hu
           | returned r3 vs => rfl
           | selfdestructed r3 => rfl
+          | exited r3 out => rfl
           | reverted r3 e => rfl
           | broke r3 => rfl
           | continued r3 => rfl
@@ -331,6 +336,7 @@ private theorem evalFor_mono_step (n m : Nat)
           | normal posted => exact hFor _ _ _ _ _ _ hu
           | returned r3 vs => rfl
           | selfdestructed r3 => rfl
+          | exited r3 out => rfl
           | reverted r3 e => rfl
           | broke r3 => rfl
           | continued r3 => rfl
@@ -480,6 +486,7 @@ private theorem eval_mono_step (n m : Nat)
     cases v with
     | returned r' vs => rfl
     | selfdestructed r' => rfl
+    | exited r' out => rfl
     | reverted r' e => rfl
     | broke r' => rfl
     | continued r' => rfl

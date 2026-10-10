@@ -8835,6 +8835,15 @@ inductive Stmt where
   | revert : String -> List Expr -> Stmt
   | emitEvent : String -> List Expr -> Stmt
   | selfdestruct : Expr -> Stmt
+  /-- The canonical proxy forwarding assembly
+      `calldatacopy(0, 0, calldatasize()) let r := delegatecall(gas(), target, 0,
+      calldatasize(), 0, 0) returndatacopy(0, 0, returndatasize()) switch r case 0
+      { revert(0, returndatasize()) } default { return(0, returndatasize()) }`.
+      Delegatecalls `target` with the whole calldata; on success it halts the whole
+      external frame returning the raw return data (`Result.exited`, like
+      `selfdestruct` it leaves every enclosing internal call), on failure it reverts
+      with the raw return data. -/
+  | forwardDelegatecall : Expr -> Stmt
   | checked : Stmt -> Stmt
   | unchecked : Stmt -> Stmt
   deriving Repr
@@ -9331,6 +9340,9 @@ def Stmt.normalizeStorageValueUses : Stmt -> Stmt
   | Stmt.selfdestruct expr =>
       Stmt.selfdestruct
         (Expr.normalizeStorageValueUses StoragePosition.pointerUse expr)
+  | Stmt.forwardDelegatecall target =>
+      Stmt.forwardDelegatecall
+        (Expr.normalizeStorageValueUses StoragePosition.valueUse target)
   | Stmt.checked stmt => Stmt.checked stmt.normalizeStorageValueUses
   | Stmt.unchecked stmt => Stmt.unchecked stmt.normalizeStorageValueUses
 
@@ -9364,6 +9376,9 @@ inductive Result where
   | normal : Runtime -> Result
   | returned : Runtime -> List Value -> Result
   | selfdestructed : Runtime -> Result
+  /-- Whole-frame halt returning raw output bytes (`Stmt.forwardDelegatecall`,
+      the proxy forwarding assembly's `return(0, returndatasize())`). -/
+  | exited : Runtime -> List Byte -> Result
   | reverted : Runtime -> RevertData -> Result
   | broke : Runtime -> Result
   | continued : Runtime -> Result
@@ -9400,6 +9415,7 @@ def Result.mapRuntime (f : Runtime -> Runtime) : Result -> Result
   | Result.normal runtime => Result.normal (f runtime)
   | Result.returned runtime values => Result.returned (f runtime) values
   | Result.selfdestructed runtime => Result.selfdestructed (f runtime)
+  | Result.exited runtime output => Result.exited (f runtime) output
   | Result.reverted runtime data => Result.reverted (f runtime) data
   | Result.broke runtime => Result.broke (f runtime)
   | Result.continued runtime => Result.continued (f runtime)
@@ -9408,6 +9424,7 @@ def Result.runtime : Result -> Runtime
   | Result.normal runtime => runtime
   | Result.returned runtime _ => runtime
   | Result.selfdestructed runtime => runtime
+  | Result.exited runtime _ => runtime
   | Result.reverted runtime _ => runtime
   | Result.broke runtime => runtime
   | Result.continued runtime => runtime
@@ -9825,6 +9842,9 @@ def internalCallFinish (fn : InternalFunction) (targets : List String)
       -- Halts the whole external frame; propagate until the entry
       -- `callBodyResult` maps it to `returned []`.
       pure (Result.selfdestructed r)
+  | Result.exited r output =>
+      -- Same: halts the whole external frame with raw output.
+      pure (Result.exited r output)
   | Result.reverted r err =>
       -- Propagate; rollback happens at the entry snapshot.
       pure (Result.reverted r err)
@@ -10961,6 +10981,24 @@ def Stmt.eval (fuel : Nat) (table : FunctionTable) (context : Context)
                             context.self recipient })
               | Except.error err => pure (Result.reverted runtime' err)
           | Except.error err => pure (Result.reverted runtime err)
+      | Stmt.forwardDelegatecall targetExpr => do
+          -- `(ok, out) = target.delegatecall(msg.data)`; success halts the whole
+          -- external frame returning `out` raw, failure reverts with `out` raw.
+          match ← (Expr.eval context runtime
+              (Expr.lowLevelCall LowLevelCallKind.delegatecall targetExpr
+                Expr.calldata (Expr.word 0) none false)).caught with
+          | Except.ok (Value.tuple [okValue, Value.bytes output], runtime') =>
+              match okValue.expectWord with
+              | Except.ok ok =>
+                  if wordTruthy ok then
+                    pure (Result.exited runtime' output)
+                  else
+                    pure
+                      (Result.reverted runtime'
+                        (RevertData.fromRawBytes output))
+              | Except.error err => pure (Result.reverted runtime' err)
+          | Except.ok _ => pure (Result.reverted runtime RevertData.typeMismatch)
+          | Except.error err => pure (Result.reverted runtime err)
       | Stmt.checked body =>
           Stmt.eval fuel table { context with checked := true } runtime body
       | Stmt.unchecked body =>
@@ -11167,6 +11205,10 @@ def FunctionDef.callBodyResult (function : FunctionDef)
             CallResult.reverted state err.untagFixedBytes
   | Result.selfdestructed runtime' =>
       CallResult.returned runtime'.state []
+  | Result.exited runtime' output =>
+      -- Raw output: a lone `bytes` value for a function that declares no
+      -- return, which `ABI.encodeValues?` encodes without a head/length.
+      CallResult.returned runtime'.state [Value.bytes output]
   | Result.reverted runtime' revert =>
       let _ := runtime'
       CallResult.reverted state revert.untagFixedBytes
@@ -11256,6 +11298,7 @@ inductive FunctionExitKind where
   | bareReturnCollectsNamedReturns
   | explicitReturnValues
   | selfdestructReturnsEmpty
+  | exitReturnsRawOutput
   | revertRollsBack
   | invalidControlReverts
   deriving Repr, BEq
@@ -11268,6 +11311,7 @@ def FunctionExitKind.ofBodyResult : Result -> FunctionExitKind
       else
         FunctionExitKind.explicitReturnValues
   | Result.selfdestructed _ => FunctionExitKind.selfdestructReturnsEmpty
+  | Result.exited _ _ => FunctionExitKind.exitReturnsRawOutput
   | Result.reverted _ _ => FunctionExitKind.revertRollsBack
   | Result.broke _ => FunctionExitKind.invalidControlReverts
   | Result.continued _ => FunctionExitKind.invalidControlReverts
