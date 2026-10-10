@@ -927,6 +927,37 @@ def Ty.publicGetterShape? (types : TypeContext) :
       | none => some ([], [Solidity.Ty.user path])
   | _ + 1, ty => some ([], [ty])
 
+/-- SCOPED-STRUCT-FIELDS: a struct declared inside a contract/library names its
+    sibling types unqualified (`library P { enum R {…} struct S { R r; } }`).
+    Seen from outside the scope (`P.S` at an ABI boundary) such a field type
+    resolves in the declaring scope first, as solc's name lookup does. -/
+def TypeContext.qualifyScopedFieldTy (types : TypeContext)
+    (scope : List Name) : Ty -> Ty
+  | Solidity.Ty.user path =>
+      match path.segments with
+      | [name] =>
+          let qualified : Path := { segments := scope ++ [name] }
+          if (types.lookupStruct? qualified).isSome ||
+              (types.lookupEnum? qualified).isSome ||
+              (types.lookupUserValueType? qualified).isSome then
+            Solidity.Ty.user qualified
+          else
+            Solidity.Ty.user path
+      | _ => Solidity.Ty.user path
+  | Solidity.Ty.array element size =>
+      Solidity.Ty.array (TypeContext.qualifyScopedFieldTy types scope element)
+        size
+  | ty => ty
+
+def TypeContext.qualifyScopedStruct (types : TypeContext) (path : Path)
+    (decl : Solidity.StructDecl) : Solidity.StructDecl :=
+  match path.segments.dropLast with
+  | [] => decl
+  | scope =>
+      { decl with
+        fields := decl.fields.map (fun field =>
+          { field with ty := TypeContext.qualifyScopedFieldTy types scope field.ty }) }
+
 mutual
 
 def TypeContext.abiCanonicalFuel? (types : TypeContext) :
@@ -997,7 +1028,8 @@ def TypeContext.abiCanonicalFuel? (types : TypeContext) :
               | none =>
                   match types.lookupStruct? path with
                   | some decl =>
-                      StructDecl.abiCanonicalFuel? types fuel decl
+                      StructDecl.abiCanonicalFuel? types fuel
+                        (types.qualifyScopedStruct path decl)
                   | none => none
   | _ + 1, Solidity.Ty.functionWithLocations _ _ _ _ _ visibility =>
       if visibility == Solidity.Visibility.external_ then
@@ -7428,8 +7460,28 @@ def checkExpr (env : CheckEnv) :
               (checkedArgInfosFull args checkedArgs)
           requireCallMutabilityAllowed env sig.mutability
           Except.ok (sig.checkedResult expr)
-      | none => do
-          checkTy env.types targetTy
+      | none =>
+        match checkTy env.types targetTy with
+        | Except.error tyErr =>
+            -- QUALIFIED-CONSTANT-RECEIVER: `D.ONE.sub(k)` has the same surface
+            -- shape, with `D.ONE` a library/contract constant VALUE (not a
+            -- type) bound through `using D for uint`. When the path is not a
+            -- type and the member reads as a value, resolve the bound call on
+            -- it like the enum surface above; otherwise keep the type error.
+            let targetExpr :=
+              Solidity.Expr.member
+                (Solidity.Expr.typeName (Solidity.Ty.user parentPath))
+                typeName
+            match checkExpr env targetExpr with
+            | Except.ok targetChecked => do
+                let checkedArgs ← checkArgs env args
+                let sig ←
+                  env.resolveUsingMemberFunctionChecked targetChecked member
+                    (checkedArgInfosFull args checkedArgs)
+                requireCallMutabilityAllowed env sig.mutability
+                Except.ok (sig.checkedResult expr)
+            | Except.error _ => Except.error tyErr
+        | Except.ok _ => do
           match env.types.lookupUserValueType? targetPath with
           | some underlying =>
               let checkedArgs ← checkArgs env args
@@ -11647,6 +11699,38 @@ def checkNoInheritedSiblingIdentifierClashes
           "inherited identifier already declared")
       checkNoInheritedSiblingIdentifierClashes funcNames eventNames rest
 
+/-- GETTER-IMPLEMENTS-SIBLING: the inherited (non-private) function names that
+    take part in the sibling clash check. A function declared in base `X` is
+    left out when another inherited base `E` that derives from `X` declares a
+    public state variable of the same name: the getter implements (overrides)
+    it, so solc's scope holds the getter alone (e.g. `interface IE {
+    function total() …; } contract E is IE { uint public total; }` inherited
+    by `C is IP, E` with `IP is IE`). A same-name function from a base that
+    `E` does not derive from still clashes. -/
+def ContractDecls.inheritedClashFunctionNames
+    (allContracts inherited : List Solidity.ContractDecl) : List Name :=
+  let gettersOf := fun (e : Solidity.ContractDecl) =>
+    e.items.filterMap (fun item =>
+      match item with
+      | Solidity.ContractItem.stateVar decl =>
+          if decl.visibility == some Solidity.Visibility.public_ then
+            some decl.name
+          else
+            none
+      | _ => none)
+  let ancestorsOf := fun (e : Solidity.ContractDecl) =>
+    match Solidity.Executable.ContractDecl.dispatchOrder? allContracts e with
+    | some order =>
+        (List.drop 1 order).map (fun (d : Solidity.ContractDecl) => d.name)
+    | none => []
+  let hidden := fun (x : Solidity.ContractDecl) (n : Name) =>
+    inherited.any (fun e =>
+      e.name != x.name && (ancestorsOf e).contains x.name &&
+        Solidity.Executable.nameIn n (gettersOf e))
+  inherited.flatMap (fun x =>
+    ((ContractDecl.nonPrivateFunctionSigsFromOrder [x]).map (·.name)).filter
+      (fun n => !hidden x n))
+
 structure OverrideMember where
   origin : Path
   originKind : Solidity.ContractKind
@@ -15338,7 +15422,8 @@ def ContractDecl.check (sourceFunctions : List FunctionSig)
   -- may not coincide with an event name. Names come from `ancestorPaths` /
   -- `inheritedContracts` (the C3 linearization, each base once), so a single
   -- declaration reached via multiple diamond paths appears once and is safe.
-  let inheritedClashFuncNames := inheritedFunctionSigs.map (·.name)
+  let inheritedClashFuncNames :=
+    ContractDecls.inheritedClashFunctionNames allContracts inheritedContracts
   let inheritedNonOverloadableNames :=
     inheritedStateVarNames ++ inheritedNonEventTypeNames
   checkNoInheritedSiblingIdentifierClashes

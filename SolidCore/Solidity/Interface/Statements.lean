@@ -9694,20 +9694,57 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
               (some (Expr.call (Expr.typeName _)
                 [Arg.positional (Expr.member _ "selector")])) => none
           | Stmt.expr e@(Expr.call _ _) =>
-              match Expr.anfHoistableCallTy? functions freeFunctions env
-                  externalCallKindEnv storageNames e with
-              | some _ => none
+              match Stmt.discardedExternalCallBinding? env externalCallKindEnv
+                  storageNames e with
+              | some decl =>
+                  some (Stmt.anfNormalizeDecl structEnv functions freeFunctions
+                    env externalCallKindEnv storageNames eventIndexedEnv decl)
               | none =>
-                  Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
-                    externalCallKindEnv storageNames eventIndexedEnv stmt1
+                  match Expr.anfHoistableCallTy? functions freeFunctions env
+                      externalCallKindEnv storageNames e with
+                  | some _ => none
+                  | none =>
+                      Stmt.anfNormalizeSelf? structEnv functions freeFunctions
+                        env externalCallKindEnv storageNames eventIndexedEnv
+                        stmt1
           | Stmt.expr e@(Expr.callWithOptions _ _ _) =>
-              match Expr.anfHoistableCallTy? functions freeFunctions env
-                  externalCallKindEnv storageNames e with
-              | some _ => none
+              match Stmt.discardedExternalCallBinding? env externalCallKindEnv
+                  storageNames e with
+              | some decl =>
+                  some (Stmt.anfNormalizeDecl structEnv functions freeFunctions
+                    env externalCallKindEnv storageNames eventIndexedEnv decl)
               | none =>
-                  Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
-                    externalCallKindEnv storageNames eventIndexedEnv stmt1
+                  match Expr.anfHoistableCallTy? functions freeFunctions env
+                      externalCallKindEnv storageNames e with
+                  | some _ => none
+                  | none =>
+                      Stmt.anfNormalizeSelf? structEnv functions freeFunctions
+                        env externalCallKindEnv storageNames eventIndexedEnv
+                        stmt1
           | Stmt.expr (Expr.member _ "selector") => none
+          | Stmt.expr (Expr.assign (Expr.tuple items) AssignOp.assign rhs) =>
+              -- EXTCALL-TUPLE-ASSIGN: `(a, b, ) = I(p).f();` declares the
+              -- call's results into hoist temps first, then assigns from the
+              -- identifier tuple, which the dedicated tuple-assignment path
+              -- lowers in solc's component order. Other tuple assignments
+              -- keep that path unchanged.
+              match Stmt.discardedExternalCallBinding? env externalCallKindEnv
+                  storageNames rhs with
+              | some decl@(Stmt.varDecl bindings _) =>
+                  let temps := bindings.filterMap (fun b =>
+                    b.name.map (fun n => TupleItem.value (Expr.ident n)))
+                  let declStmt := Stmt.anfNormalizeDecl structEnv functions
+                    freeFunctions env externalCallKindEnv storageNames
+                    eventIndexedEnv decl
+                  let pieces :=
+                    match declStmt with
+                    | Stmt.block inner => inner
+                    | other => [other]
+                  some (Stmt.annotateAbi env (Stmt.resolveStructs structEnv env
+                    (Stmt.block (pieces ++
+                      [Stmt.expr (Expr.assign (Expr.tuple items)
+                        AssignOp.assign (Expr.tuple temps))]))))
+              | _ => none
           | Stmt.expr (Expr.assign (Expr.tuple _) _ _) => none
           | _ =>
               Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
@@ -10985,6 +11022,70 @@ def libraryExternalDirectCallRewrite? (contracts : List ContractDecl)
   FunctionDecls.rewriteLibraryExternalDirectCallCandidate?
     libraryName method env args candidates
 
+def usingReceiverPlaceholder : Name := "__solidcore_using_receiver"
+
+def Expr.substIdentFuel (name : Name) (replacement : Expr) :
+    Nat -> Expr -> Expr
+  | 0, expr => expr
+  | fuel + 1, expr =>
+      match expr with
+      | Expr.ident n => if n == name then replacement else expr
+      | Expr.call callee args =>
+          Expr.call (Expr.substIdentFuel name replacement fuel callee)
+            (args.map (fun arg =>
+              match arg with
+              | Arg.positional e =>
+                  Arg.positional (Expr.substIdentFuel name replacement fuel e)
+              | Arg.named key e =>
+                  Arg.named key (Expr.substIdentFuel name replacement fuel e)))
+      | _ => expr
+
+/-- The single declared return type of a high-level external call
+    `T(t).f(args)` / `x.f(args)` with `x : T`, read from `T`'s own function
+    declarations (one function of that name and arity, one return). -/
+def Expr.externalCallDeclaredSingleReturnTy? (contracts : List ContractDecl)
+    (env : TypeEnv) : Expr -> Option Ty
+  | Expr.call (Expr.member target name) args => do
+      let targetTy ← Expr.abiTyWithEnv? env target
+      let path ←
+        match targetTy with
+        | Ty.user path => some path
+        | _ => none
+      let contractName ← pathLast? path
+      let decl ← contracts.find? (fun c => c.name == contractName)
+      let candidates := decl.items.filterMap (fun item =>
+        match item with
+        | ContractItem.function fn =>
+            if fn.name == some name && fn.params.length == args.length then
+              some fn
+            else
+              none
+        | _ => none)
+      match candidates with
+      | [fn] =>
+          match fn.returns with
+          | [ret] => some ret.ty
+          | _ => none
+      | _ => none
+  | _ => none
+
+/-- USING-EXTCALL-RECEIVER: a bound call whose receiver is an external call
+    result (`IERC20(t).balanceOf(x).sub(r)`). The receiver has no type in the
+    local environment, so every `using` candidate declined it. Type it from the
+    callee's declaration, match the candidates against a typed placeholder, and
+    put the receiver expression back in the rewritten call (as its first
+    argument, where the ordinary call-argument hoisting evaluates it first). -/
+def Expr.usingExternalReceiverRewrite? (contracts : List ContractDecl)
+    (freeFunctions : List FunctionDecl) (usingDecls : List UsingDecl)
+    (env : TypeEnv) (receiver : Expr) (method : Name) (args : List Arg) :
+    Option Expr := do
+  let ty ← Expr.externalCallDeclaredSingleReturnTy? contracts env receiver
+  let env' := TypeEnv.extend? env (some usingReceiverPlaceholder) (some ty)
+  let rewritten ←
+    UsingDecls.rewriteCall? contracts freeFunctions env'
+      (Expr.ident usingReceiverPlaceholder) method args usingDecls
+  some (Expr.substIdentFuel usingReceiverPlaceholder receiver 16 rewritten)
+
 mutual
 
 def Expr.expandUsingFuel :
@@ -11052,7 +11153,13 @@ def Expr.expandUsingFuel :
                           contracts freeFunctions env receiver' method args'
                           usingDecls with
                       | some rewritten => rewritten
-                      | none => Expr.call (Expr.member receiver' method) args'
+                      | none =>
+                          match Expr.usingExternalReceiverRewrite?
+                              contracts freeFunctions usingDecls env receiver'
+                              method args' with
+                          | some rewritten => rewritten
+                          | none =>
+                              Expr.call (Expr.member receiver' method) args'
       | Expr.call fn args =>
           Expr.call (expand fn) (args.map expandArg)
       | Expr.callWithOptions (Expr.member receiver method) options args =>

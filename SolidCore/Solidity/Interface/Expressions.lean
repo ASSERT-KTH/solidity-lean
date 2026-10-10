@@ -8225,6 +8225,19 @@ def Expr.anfHoist
       | Expr.call callee args =>
           let args := Expr.reorderNamedInternalCallArgs functions freeFunctions
             env callee args
+          -- CALLEE-BASE-HOIST: a member callee whose base is itself a call —
+          -- an external call result used as a bound-library receiver
+          -- (`IERC20(t).balanceOf(x).sub(r)`) or a cast wrapping an internal
+          -- call as the external target (`I(pf(a)).get()`) — hoists that base
+          -- first: solc evaluates the callee expression (receiver / target)
+          -- before the arguments. Other bases (identifiers, index/member
+          -- paths) are left in place, keeping their dedicated lowering.
+          let (cCallee, cpre, callee') :=
+            match callee with
+            | Expr.member base@(Expr.call _ _) name =>
+                let (c1, pre, base') := rec1 c base
+                (c1, pre, Expr.member base' name)
+            | _ => (c, [], callee)
           -- solc's legacy codegen evaluates addmod/mulmod arguments from the
           -- modulus back to the first operand. The generic call schedule is
           -- left-to-right, so hoist side-effecting nested calls in the builtin
@@ -8234,33 +8247,46 @@ def Expr.anfHoist
             | Expr.ident name,
                 [Arg.positional a, Arg.positional b, Arg.positional m] =>
                 if name == "addmod" || name == "mulmod" then
-                  let (c1, pm, m') := rec1 c m
+                  let (c1, pm, m') := rec1 cCallee m
                   let (c2, pb, b') := rec1 c1 b
                   let (c3, pa, a') := rec1 c2 a
                   ( c3
                   , pm ++ pb ++ pa
                   , [Arg.positional a', Arg.positional b', Arg.positional m'] )
                 else
-                  recArgs c args
-            | _, _ => recArgs c args
-          match Expr.anfHoistableCallTy? functions freeFunctions env
-              externalCallKindEnv storageNames (Expr.call callee args) with
+                  recArgs cCallee args
+            | _, _ => recArgs cCallee args
+          let apre := cpre ++ apre
+          -- With a hoisted callee base, the call is classified on its
+          -- rewritten form, the base temp typed: `_sol_hoist_0.sub(r)` is then
+          -- the bound library call it denotes, not a member of an unknown.
+          let (callEnv, classified) :=
+            if cpre.isEmpty then (env, Expr.call callee args)
+            else
+              ( cpre.foldl (fun acc s =>
+                  match s with
+                  | Stmt.varDecl bindings _ =>
+                      VarBindings.extendTypeEnv acc bindings
+                  | _ => acc) env
+              , Expr.call callee' args )
+          match Expr.anfHoistableCallTy? functions freeFunctions callEnv
+              externalCallKindEnv storageNames classified with
           | some retTy =>
               let t := anfHoistName cArgs
               -- R3 (#188): a storage-pointer return hoists to a STORAGE temp.
               let location :=
                 if Expr.anfHoistableCallStorageReturn
-                    functions freeFunctions env (Expr.call callee args) then
+                    functions freeFunctions callEnv classified then
                   some DataLocation.storage
                 else
                   Ty.anfHoistLocation? retTy
               let decl := Stmt.varDecl
                 [{ name := some t, ty := some (Ty.anfTempTy retTy),
                    location := location }]
-                (some (Expr.call callee args'))
+                (some (Expr.call callee' args'))
               (cArgs + 1, apre ++ [decl], Expr.ident t)
           | none =>
-              (cArgs, apre, Expr.call callee args')
+              (cArgs, apre, Expr.call callee' args')
       | Expr.callWithOptions callee opts args =>
           match Expr.anfHoistableCallTy? functions freeFunctions env
               externalCallKindEnv storageNames
@@ -8488,5 +8514,37 @@ def Stmt.anfNormalizeSelf?
       let (_, pre, e') := hoist e
       if pre.isEmpty then none else done pre (Stmt.revertCall e')
   | _ => none
+
+/-- DISCARDED-EXTCALL-RETURN: an expression statement that is a high-level
+    external call with declared returns (`IERC20(t).transfer(to, v);`) binds
+    its results to fresh hoist temps, `T _sol_hoist_0 = call;` (a tuple
+    declaration for several returns). solc ABI-decodes the return data of every
+    high-level call even when the values are discarded (a too-short return
+    reverts), which is exactly what the declaration's decode does. `none` for
+    void calls, low-level calls and anything without a declared-return entry. -/
+def Stmt.discardedExternalCallBinding? (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (e : Expr) : Option Stmt :=
+  match Expr.externalCallDeclaredReturnTysWithKindEnv?
+      storageNames env externalCallKindEnv e with
+  | some tys@(_ :: _) =>
+      let bindings := (List.range tys.length).zip tys |>.map (fun (i, ty) =>
+        ({ name := some (anfHoistName i), ty := some (Ty.anfTempTy ty),
+           location := Ty.anfHoistLocation? ty } : VarBinding))
+      some (Stmt.varDecl bindings (some e))
+  | _ => none
+
+/-- ANF-normalize a generated declaration: its initializer's nested calls are
+    hoisted when needed, and the struct/abi passes are re-run on the result. -/
+def Stmt.anfNormalizeDecl
+    (structEnv : StructEnv)
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (eventIndexedEnv : EventIndexedEnv) (decl : Stmt) : Stmt :=
+  match Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
+      externalCallKindEnv storageNames eventIndexedEnv decl with
+  | some stmt => stmt
+  | none =>
+      Stmt.annotateAbi env (Stmt.resolveStructs structEnv env (Stmt.block [decl]))
 
 end SolidCore.Solidity.Executable
