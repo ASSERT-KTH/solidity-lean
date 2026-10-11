@@ -8083,6 +8083,23 @@ def Expr.anfHoistableCallStorageReturn
     | _ => none
   retLocation? == some (some DataLocation.storage)
 
+/-- The data locations of an internal callee's parameters, for a bare-identifier
+    callee (`[]` when it does not resolve to a user function: nothing is then
+    treated as a `storage` parameter). -/
+def Expr.anfCalleeParamLocations
+    (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
+    (callee : Expr) (args : List Arg) : List (Option DataLocation) :=
+  match callee with
+  | Expr.ident name =>
+      match FunctionDecl.findInternalCalleeWithArgs? functions env name args with
+      | some (fn, _) => fn.params.map (·.location)
+      | none =>
+          match FunctionDecl.findInternalCalleeWithArgs?
+              freeFunctions env name args with
+          | some (fn, _) => fn.params.map (·.location)
+          | none => []
+  | _ => []
+
 def anfHoistFuel : Nat := 100000
 
 mutual
@@ -8099,8 +8116,9 @@ def Expr.anfHoist
   | fuel + 1, c, e =>
       let rec1 := Expr.anfHoist functions freeFunctions env externalCallKindEnv
         storageNames fuel
-      let recArgs := Args.anfHoist functions freeFunctions env
-        externalCallKindEnv storageNames fuel
+      let recArgs := fun (locs : List (Option DataLocation)) =>
+        Args.anfHoist functions freeFunctions env
+          externalCallKindEnv storageNames locs fuel
       let recItems := TupleItems.anfHoist functions freeFunctions env
         externalCallKindEnv storageNames fuel
       let recExprs := Exprs.anfHoist functions freeFunctions env
@@ -8229,6 +8247,8 @@ def Expr.anfHoist
           -- modulus back to the first operand. The generic call schedule is
           -- left-to-right, so hoist side-effecting nested calls in the builtin
           -- order while reconstructing the original positional argument list.
+          let locs := Expr.anfCalleeParamLocations functions freeFunctions env
+            callee args
           let (cArgs, apre, args') :=
             match callee, args with
             | Expr.ident name,
@@ -8241,8 +8261,8 @@ def Expr.anfHoist
                   , pm ++ pb ++ pa
                   , [Arg.positional a', Arg.positional b', Arg.positional m'] )
                 else
-                  recArgs c args
-            | _, _ => recArgs c args
+                  recArgs locs c args
+            | _, _ => recArgs locs c args
           match Expr.anfHoistableCallTy? functions freeFunctions env
               externalCallKindEnv storageNames (Expr.call callee args) with
           | some retTy =>
@@ -8266,7 +8286,7 @@ def Expr.anfHoist
               externalCallKindEnv storageNames
               (Expr.callWithOptions callee opts args) with
           | some retTy =>
-              let (c1, apre, args') := recArgs c args
+              let (c1, apre, args') := recArgs [] c args
               let t := anfHoistName c1
               let location :=
                 if Expr.anfHoistableCallStorageReturn
@@ -8281,16 +8301,17 @@ def Expr.anfHoist
                 (some (Expr.callWithOptions callee opts args'))
               (c1 + 1, apre ++ [decl], Expr.ident t)
           | none =>
-              let (c1, apre, args') := recArgs c args
+              let (c1, apre, args') := recArgs [] c args
               (c1, apre, Expr.callWithOptions callee opts args')
       | Expr.newExpr ty args =>
-          let (c1, apre, args') := recArgs c args
+          let (c1, apre, args') := recArgs [] c args
           (c1, apre, Expr.newExpr ty args')
 termination_by fuel _ _ => fuel
 
 def Args.anfHoist
     (functions freeFunctions : List FunctionDecl) (env : TypeEnv)
-    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name) :
+    (externalCallKindEnv : ExternalCallKindEnv) (storageNames : List Name)
+    (locs : List (Option DataLocation)) :
     Nat -> Nat -> List Arg -> (Nat × List Stmt × List Arg)
   | 0, c, args => (c, [], args)
   | _, c, [] => (c, [], [])
@@ -8306,7 +8327,7 @@ def Args.anfHoist
               externalCallKindEnv storageNames fuel c e
             (c', p, Arg.named n e')
       let (c2, p2, rest') := Args.anfHoist functions freeFunctions env
-        externalCallKindEnv storageNames fuel c1 rest
+        externalCallKindEnv storageNames locs.tail fuel c1 rest
       if p2.isEmpty then
         (c2, p1, arg' :: rest')
       else
@@ -8324,9 +8345,16 @@ def Args.anfHoist
             functions freeFunctions env argExpr with
         | some argTy =>
             let t := anfHoistName c2
+            -- An argument bound to a `storage` parameter is a storage POINTER:
+            -- its temp is a `storage` alias, never a (detached) memory copy.
+            let location :=
+              if dataLocationIsStorage (locs.headD none) then
+                some DataLocation.storage
+              else
+                Ty.anfHoistLocation? argTy
             let decl := Stmt.varDecl
               [{ name := some t, ty := some (Ty.anfTempTy argTy),
-                 location := Ty.anfHoistLocation? argTy }]
+                 location := location }]
               (some argExpr)
             (c2 + 1, p1 ++ [decl] ++ p2,
               Arg.withExpr (Expr.ident t) arg' :: rest')
