@@ -24,8 +24,13 @@ the caller's own storage as of the call. A DELEGATECALL runs the code registered
 and the delegating frame's `msg.sender`/`msg.value`, so its writes land in the
 delegating contract; immutables are the code's own.
 
-Out of scope (fail closed): contract creation, `gasleft`-dependent behaviour (resource
-queries get the canonical default), static-call write protection (not enforced).
+A contract creation by Lean-executed code (`new C{salt: s}(..)`) creates the registry
+template named in the request at the address of the recording (`Registry.creations`, in
+order), runs its constructor under this responder and makes it callable.
+
+Out of scope (fail closed): creation by anything but a template with a recorded address,
+`gasleft`-dependent behaviour (resource queries get the canonical default), static-call
+write protection (not enforced).
 Everything is `partial`: this is an executable model, not (yet) a proved one.
 -/
 
@@ -58,6 +63,14 @@ structure Registry where
   blockEnv : BlockEnv
   txEnv : TxEnv
   fuel : Nat := 4096
+  /-- Contracts that Lean-executed code may create (`new C(..)`, `new C{salt: s}(..)`), by
+      name: the contract, its constructor and its immutables. A creation request names
+      its contract (`creationInitCode`). -/
+  templates : List (String × Contract × Option FunctionDef × List (String × Word)) := []
+  /-- The creations of the recorded EVM run made by Lean-executed code, in order: the
+      creator and the address the new contract got. (A CREATE/CREATE2 address depends on
+      init-code bytes that this semantics does not have; the recording supplies it.) -/
+  creations : List (Word × Word) := []
 
 /-- Per-actor invocation cursors, threaded through the whole run. -/
 structure Cursors where
@@ -74,6 +87,10 @@ structure Cursors where
   /-- Block environment overrides from replayed Foundry `vm.warp` / `vm.roll`. -/
   timestamp? : Option Word := none
   number? : Option Word := none
+  /-- Contracts created so far in this run, callable from the moment they exist. -/
+  created : List (Word × Member) := []
+  /-- How many of `Registry.creations` have been consumed. -/
+  creationPos : Nat := 0
   deriving Inhabited
 
 /-- Foundry's cheatcode address: actor scripts keep their `vm.warp`/`vm.roll` calls. -/
@@ -96,6 +113,12 @@ def Cursors.record (cs : Cursors) (caller target : Word) (calldata : List Nat) (
 
 def Registry.find? (reg : Registry) (a : Word) : Option Member :=
   (reg.members.find? (·.1 == Shared.norm a)).map (·.2)
+
+/-- A member of the registry or a contract created during this run. -/
+def Registry.resolve? (reg : Registry) (cs : Cursors) (a : Word) : Option Member :=
+  match cs.created.find? (·.1 == Shared.norm a) with
+  | some (_, m) => some m
+  | none => reg.find? a
 
 /-- Move `value` from `src` to `dst` in the world; `none` if `src` cannot pay. -/
 def transferValue (world : Shared.OpenWorld) (src dst value : Word) :
@@ -131,8 +154,9 @@ partial def run {α : Type} (reg : Registry) (depth : Nat) (cs : Cursors) :
   | .request (.external world (.call req)) k => do
       let (resp, cs) ← answerCall reg depth cs world req
       run reg depth cs (k resp)
-  | .request (.external _ (.create _)) _ =>
-      .error "contract creation is not supported in the closed world"
+  | .request (.external world (.create req)) k => do
+      let (resp, cs) ← answerCreate reg depth cs world req
+      run reg depth cs (k resp)
   | .request (.resource r) k => run reg depth cs (k (Query.defaultAnswer (.resource r)))
 
 /-- Answer one call request by executing the callee; logged in pre-order. -/
@@ -185,7 +209,7 @@ partial def answerCallInner (reg : Registry) (depth : Nat) (cs : Cursors)
   let some world1 := (if moves then transferValue world caller self value else some world)
     | return (failed world req, cs.note
         s!"value {value} from {caller} to {self}: balance {balanceOfWorld world caller}")
-  match reg.find? target with
+  match reg.resolve? cs target with
   | some (.code contract immutables) =>
       -- A2 entry re-bases `selfBalance` from the Context seed `accountBalances` plus
       -- `msg.value` (`FunctionDef.call`), not from the adopted world. Seed it with the
@@ -231,6 +255,64 @@ partial def answerCallInner (reg : Registry) (depth : Nat) (cs : Cursors)
       return ({ success := true, returnData := ByteArray.empty, postWorld := world1,
                 returnedGas := req.requestedGas }, cs)
   | none => .error s!"call to unregistered address {target} from {caller} (selector {calldata.take 4}, depth {depth})"
+
+/-- Answer a contract creation: the contract is the template the request names, it gets
+    the address the recording says (in order, from the same creator), value moves to it,
+    and its constructor runs under this responder on an account without code, as on the
+    EVM; on success the account gets code and becomes callable. A reverting constructor
+    answers address 0. -/
+partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
+    (world : Shared.OpenWorld) (req : CreateRequest) :
+    Except String (CreateResponse × Cursors) := do
+  let creator := addressToWord req.creator
+  let some (name, ctorArgs) := decodeCreationInitCode? req.initCode
+    | .error "creation with unreadable init code"
+  let some (specCreator, addr) := reg.creations[cs.creationPos]?
+    | .error s!"creation of {name} by {creator}: more creations than the {reg.creations.length} recorded"
+  if specCreator != Shared.norm creator then
+    .error s!"creation of {name} by {creator}, but the recording has it by {specCreator}"
+  let cs := { cs with creationPos := cs.creationPos + 1 }
+  let some (_, contract, ctor?, immutables) := reg.templates.find? (·.1 == name)
+    | .error s!"no template for the created contract {name}"
+  let failedResp := fun (w : Shared.OpenWorld) =>
+    ({ address := wordToU256 0, returnData := ByteArray.empty, postWorld := w,
+       returnedGas := wordToU256 0 } : CreateResponse)
+  let value := u256ToWord req.value
+  let some world1 := transferValue world creator addr value
+    | return (failedResp world, cs.note s!"creation value {value} from {creator}")
+  let member : Member := .code contract immutables
+  let withCode := fun (w : Shared.OpenWorld) =>
+    let a := wordToAddress addr
+    let acc := (w.accounts.find? a).getD default
+    { w with accounts := w.accounts.insert a { acc with codeBytes := bytesToByteArray [0xfe] } }
+  let done := fun (w : Shared.OpenWorld) (cs : Cursors) =>
+    (({ address := wordToU256 addr, returnData := ByteArray.empty, postWorld := withCode w,
+        returnedGas := wordToU256 0 } : CreateResponse),
+     { cs with created := (addr, member) :: cs.created })
+  match ctor? with
+  | none => return done world1 cs
+  | some ctor =>
+      let base : Context := { contract.context with
+        blockEnv := cs.blockEnv reg.blockEnv, txEnv := reg.txEnv, construction := true,
+        accountBalances := (addr, balanceOfWorld world1 addr - value) :: contract.context.accountBalances }
+      let ctx := ABI.Contract.callContextAtWithBase contract base addr creator value []
+      let st0 := immutables.foldl (fun (st : State) (nw : String × Word) =>
+          match contract.immutableFields.find? (·.name == nw.1) with
+          | some field =>
+              match field.ty.coerceValue? (Value.word nw.2) with
+              | some v => st.storeImmutable nw.1 v
+              | none => st
+          | none => st)
+        (adoptWorld world1 ctx State.empty)
+      let args ← match ABI.decodeFunctionArgs? ctor ctorArgs with
+        | .ok a => pure a
+        | .error _ => .error s!"constructor arguments of {name}"
+      let some tree := ctor.call reg.fuel contract.table ctx st0 args
+        | .error s!"no constructor call tree for {name}"
+      let (res, cs) ← run reg (depth - 1) cs tree
+      match res with
+      | .returned st' _ => return done (snapshotWorld ctx st') cs
+      | .reverted _ _ => return (failedResp world, cs)
 
 /-- `ABI.Contract.callCalldataAtFromWithContext?`, but folding each function's call
     tree with `run` instead of the empty responder. -/
