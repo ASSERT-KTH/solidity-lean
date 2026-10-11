@@ -68,9 +68,13 @@ structure Registry where
       its contract (`creationInitCode`). -/
   templates : List (String × Contract × Option FunctionDef × List (String × Word)) := []
   /-- The creations of the recorded EVM run made by Lean-executed code, in order: the
-      creator and the address the new contract got. (A CREATE/CREATE2 address depends on
-      init-code bytes that this semantics does not have; the recording supplies it.) -/
-  creations : List (Word × Word) := []
+      creator, the address the new contract got, and for a CREATE2 the keccak256 of its
+      init code. This semantics runs Solidity, not bytecode, so a creation request carries
+      the contract's name instead of init-code bytes: the address comes from the recording.
+      For a CREATE2 it is *checked*: `keccak256(0xff ++ creator ++ salt ++ initCodeHash)`
+      with the salt this run computed must give the recorded address, so a different salt
+      or creator fails closed. -/
+  creations : List (Word × Word × Option Word) := []
 
 /-- Per-actor invocation cursors, threaded through the whole run. -/
 structure Cursors where
@@ -267,10 +271,18 @@ partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
   let creator := addressToWord req.creator
   let some (name, ctorArgs) := decodeCreationInitCode? req.initCode
     | .error "creation with unreadable init code"
-  let some (specCreator, addr) := reg.creations[cs.creationPos]?
+  let some (specCreator, addr, initCodeHash?) := reg.creations[cs.creationPos]?
     | .error s!"creation of {name} by {creator}: more creations than the {reg.creations.length} recorded"
   if specCreator != Shared.norm creator then
     .error s!"creation of {name} by {creator}, but the recording has it by {specCreator}"
+  -- CREATE2: the recorded address must be the one this run's salt and creator give.
+  if let (some salt, some initCodeHash) := (req.salt, initCodeHash?) then
+    let digest := Keccak.keccak256Bytes
+      (0xff :: (wordToBytesBE 20 creator ++ wordToBytesBE 32 (u256ToWord salt) ++
+        wordToBytesBE 32 initCodeHash))
+    let computed := bytesToWordBE (digest.drop 12)
+    if computed != Shared.norm addr then
+      .error s!"CREATE2 of {name} by {creator} with salt {u256ToWord salt} is at {computed}, but the recording has {addr}"
   let cs := { cs with creationPos := cs.creationPos + 1 }
   -- Logged like a call (an EVM trace has the creation frame, with empty calldata), in
   -- pre-order: before the constructor's own calls.
