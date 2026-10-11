@@ -9757,7 +9757,32 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
                     (Stmt.block (pieces ++
                       [Stmt.expr (Expr.assign (Expr.tuple items)
                         AssignOp.assign (Expr.tuple temps))]))))
-              | _ => none
+              | _ =>
+                  -- TUPLE-ASSIGN-CALL-ARG: `(a, b) = f(g())` — an internal
+                  -- multi-return call whose ARGUMENTS hold calls. The dedicated
+                  -- tuple path cannot lower a call-bearing argument, so only
+                  -- the argument calls are hoisted (left-to-right, a storage
+                  -- parameter's argument kept a pointer); the call itself and
+                  -- the targets stay on the dedicated path, which still runs
+                  -- the RHS call before any target index expression.
+                  match rhs with
+                  | Expr.call (Expr.ident name) args =>
+                      let args := Expr.reorderNamedInternalCallArgs functions
+                        freeFunctions env (Expr.ident name) args
+                      let locs := Expr.anfCalleeParamLocations functions
+                        freeFunctions env (Expr.ident name) args
+                      let (_, pre, args') := Args.anfHoist functions
+                        freeFunctions env externalCallKindEnv storageNames locs
+                        anfHoistFuel 0 args
+                      if pre.isEmpty then none
+                      else
+                        some (Stmt.annotateAbi env
+                          (Stmt.resolveStructs structEnv env
+                            (Stmt.block (pre ++
+                              [Stmt.expr (Expr.assign (Expr.tuple items)
+                                AssignOp.assign
+                                (Expr.call (Expr.ident name) args'))]))))
+                  | _ => none
           | Stmt.expr (Expr.assign (Expr.tuple _) _ _) => none
           | _ =>
               Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
