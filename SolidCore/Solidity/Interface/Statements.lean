@@ -9696,9 +9696,31 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
         -- ordinary expression positions above.
         let normalized? :=
           match stmt1 with
-          | Stmt.varDecl bindings _ =>
+          | Stmt.varDecl bindings init =>
               if bindings.any (fun b =>
-                  b.location == some DataLocation.storage) then none
+                  b.location == some DataLocation.storage) then
+                -- STORAGE-DECL-CALL-ARG: `(T storage p, uint a) = f(g())` /
+                -- `T storage p = f(g())` keep their dedicated alias lowering,
+                -- which cannot lower a call-bearing argument; hoist only the
+                -- argument calls (left-to-right, storage-parameter arguments
+                -- kept pointers) and leave the declaration itself alone.
+                match init with
+                | some (Expr.call (Expr.ident name) args) =>
+                    let args := Expr.reorderNamedInternalCallArgs functions
+                      freeFunctions env (Expr.ident name) args
+                    let locs := Expr.anfCalleeParamLocations functions
+                      freeFunctions env (Expr.ident name) args
+                    let (_, pre, args') := Args.anfHoist functions
+                      freeFunctions env externalCallKindEnv storageNames locs
+                      anfHoistFuel 0 args
+                    if pre.isEmpty then none
+                    else
+                      some (Stmt.annotateAbi env
+                        (Stmt.resolveStructs structEnv env
+                          (Stmt.block (pre ++
+                            [Stmt.varDecl bindings
+                              (some (Expr.call (Expr.ident name) args'))]))))
+                | _ => none
               else
                 Stmt.anfNormalizeSelf? structEnv functions freeFunctions env
                   externalCallKindEnv storageNames eventIndexedEnv stmt1
