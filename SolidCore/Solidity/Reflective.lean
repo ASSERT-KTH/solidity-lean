@@ -272,6 +272,13 @@ partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
   if specCreator != Shared.norm creator then
     .error s!"creation of {name} by {creator}, but the recording has it by {specCreator}"
   let cs := { cs with creationPos := cs.creationPos + 1 }
+  -- Logged like a call (an EVM trace has the creation frame, with empty calldata), in
+  -- pre-order: before the constructor's own calls.
+  let idx := cs.log.size
+  let cs := cs.record creator addr [] false
+  let settle := fun (cs : Cursors) (ok : Bool) =>
+    let (c, t, sel, _) := cs.log[idx]!
+    { cs with log := cs.log.set! idx (c, t, sel, ok) }
   let some (_, contract, ctor?, immutables) := reg.templates.find? (·.1 == name)
     | .error s!"no template for the created contract {name}"
   let failedResp := fun (w : Shared.OpenWorld) =>
@@ -279,7 +286,7 @@ partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
        returnedGas := wordToU256 0 } : CreateResponse)
   let value := u256ToWord req.value
   let some world1 := transferValue world creator addr value
-    | return (failedResp world, cs.note s!"creation value {value} from {creator}")
+    | return (failedResp world, settle (cs.note s!"creation value {value} from {creator}") false)
   let member : Member := .code contract immutables
   let withCode := fun (w : Shared.OpenWorld) =>
     let a := wordToAddress addr
@@ -288,7 +295,7 @@ partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
   let done := fun (w : Shared.OpenWorld) (cs : Cursors) =>
     (({ address := wordToU256 addr, returnData := ByteArray.empty, postWorld := withCode w,
         returnedGas := wordToU256 0 } : CreateResponse),
-     { cs with created := (addr, member) :: cs.created })
+     settle { cs with created := (addr, member) :: cs.created } true)
   match ctor? with
   | none => return done world1 cs
   | some ctor =>
@@ -312,7 +319,7 @@ partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
       let (res, cs) ← run reg (depth - 1) cs tree
       match res with
       | .returned st' _ => return done (snapshotWorld ctx st') cs
-      | .reverted _ _ => return (failedResp world, cs)
+      | .reverted _ _ => return (failedResp world, settle cs false)
 
 /-- `ABI.Contract.callCalldataAtFromWithContext?`, but folding each function's call
     tree with `run` instead of the empty responder. -/
