@@ -9737,7 +9737,22 @@ def Stmt.anfPreprocess (structEnv : StructEnv) (internalFuel : Nat)
               | none =>
                   match Expr.anfHoistableCallTy? functions freeFunctions env
                       externalCallKindEnv storageNames e with
-                  | some _ => none
+                  | some _ =>
+                      -- DISCARDED-CALL-STMT: a discarded value-returning call
+                      -- (`L.f(I(t).g(), d);`) whose ARGUMENTS hold calls: hoist
+                      -- only the argument calls and keep the call itself as the
+                      -- statement. The dispatcher cannot lower a nested external
+                      -- call argument. Plain discarded calls (no nested call)
+                      -- keep the dispatcher path.
+                      match Stmt.anfNormalizeSelf? structEnv functions
+                          freeFunctions env externalCallKindEnv storageNames
+                          eventIndexedEnv stmt1 with
+                      | some (Stmt.block inner) =>
+                          match inner.getLast? with
+                          | some (Stmt.expr (Expr.call _ _)) =>
+                              some (Stmt.block inner)
+                          | _ => none
+                      | _ => none
                   | none =>
                       Stmt.anfNormalizeSelf? structEnv functions freeFunctions
                         env externalCallKindEnv storageNames eventIndexedEnv

@@ -8520,7 +8520,18 @@ def Stmt.anfNormalizeSelf?
       if pre.isEmpty then none else done pre (Stmt.returnValues (some e'))
   | Stmt.expr e =>
       let (_, pre, e') := hoist e
-      if pre.isEmpty then none else done pre (Stmt.expr e')
+      if pre.isEmpty then none else
+      -- DISCARDED-CALL-STMT: when the statement's own call was hoisted into the
+      -- LAST temp (`_h1 = L.f(_h0, d); _h1;`), run that call as the expression
+      -- statement (`L.f(_h0, d);`) rather than reading its temp: a discarded
+      -- memory-typed result (`bytes`) has no lowering as a bare temp read.
+      match e', pre.getLast? with
+      | Expr.ident t,
+          some (Stmt.varDecl [{ name := some n, .. }] (some call)) =>
+          if t == n && !pre.dropLast.isEmpty then
+            done pre.dropLast (Stmt.expr call)
+          else done pre (Stmt.expr e')
+      | _, _ => done pre (Stmt.expr e')
   | Stmt.varDecl bindings (some e) =>
       let (_, pre, e') := hoist e
       if pre.isEmpty then none else done pre (Stmt.varDecl bindings (some e'))
