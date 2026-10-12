@@ -6277,10 +6277,17 @@ termination_by items => (sizeOf items, 0)
 def Expr.functionPointerSelectorCore? (storageNames : List Name)
     (functionPointer : Expr) (argTys : List Ty) : Option CoreExpr :=
   match functionPointer with
-  | Expr.member _ name => do
-      if name == "call" || name == "staticcall" ||
-          name == "delegatecall" || name == "send" ||
-          name == "transfer" then
+  | Expr.member base name => do
+      -- `address.transfer` / `.call` are builtins, but `IERC20.transfer` (a
+      -- type-qualified base) is the interface function.
+      let typeQualified :=
+        match base with
+        | Expr.typeName _ => true
+        | _ => false
+      if !typeQualified &&
+          (name == "call" || name == "staticcall" ||
+            name == "delegatecall" || name == "send" ||
+            name == "transfer") then
         none
       else
         some ()
