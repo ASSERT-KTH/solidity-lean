@@ -565,8 +565,25 @@ def storage_store_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, st
 
 
 def revert_bytes_assembly(yul: dict[str, Any]) -> tuple[str, list[tuple[str, str]]] | None:
-    """`let n := mload(b) revert(add(32, b), n)`: revert with the bytes of a `bytes memory` b."""
+    """`let n := mload(b) revert(add(32, b), n)`, or the same without the local,
+    `revert(add(b, 32), mload(b))`: revert with the bytes of a `bytes memory` b."""
     stmts = yul.get("statements", [])
+    if len(stmts) == 1 and stmts[0].get("nodeType") == "YulExpressionStatement":
+        rev1 = stmts[0].get("expression") or {}
+        args1 = rev1.get("arguments", [])
+        if rev1.get("nodeType") != "YulFunctionCall" or (rev1.get("functionName") or {}).get("name") != "revert" \
+                or len(args1) != 2:
+            return None
+        offset1, size1 = args1
+        add1 = offset1.get("arguments", []) if (offset1.get("functionName") or {}).get("name") == "add" else []
+        load1 = size1.get("arguments", []) if (size1.get("functionName") or {}).get("name") == "mload" else []
+        if len(add1) != 2 or len(load1) != 1 or (m := _yul_ident_src(load1[0])) is None:
+            return None
+        lit1 = [a for a in add1 if _yul_norm(a) == ("n", 32)]
+        ident1 = [a for a in add1 if a.get("nodeType") == "YulIdentifier"]
+        if len(lit1) != 1 or len(ident1) != 1 or (a1 := _yul_ident_src(ident1[0])) is None or a1[0] != m[0]:
+            return None
+        return f"revert-bytes:{m[0]}", [m, a1]
     if len(stmts) != 2 or stmts[0].get("nodeType") != "YulVariableDeclaration":
         return None
     decl = stmts[0]

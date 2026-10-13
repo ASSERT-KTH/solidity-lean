@@ -6277,20 +6277,11 @@ termination_by items => (sizeOf items, 0)
 def Expr.functionPointerSelectorCore? (storageNames : List Name)
     (functionPointer : Expr) (argTys : List Ty) : Option CoreExpr :=
   match functionPointer with
-  | Expr.member base name => do
-      -- `address.transfer` / `.call` are builtins, but `IERC20.transfer` (a
-      -- type-qualified base) is the interface function.
-      let typeQualified :=
-        match base with
-        | Expr.typeName _ => true
-        | _ => false
-      if !typeQualified &&
-          (name == "call" || name == "staticcall" ||
-            name == "delegatecall" || name == "send" ||
-            name == "transfer") then
-        none
-      else
-        some ()
+  | Expr.member _ name => do
+      -- Only `abi.encodeCall` reaches here, and solc rejects `address.transfer` /
+      -- `.call` / `.send` as its function pointer: a member named `transfer` is the
+      -- interface function, whether the base is a type (`IERC20.transfer`) or a
+      -- variable of that type (`token.transfer`, OpenZeppelin SafeERC20).
       let signature ← externalFunctionSignature? name argTys
       some
         (SolidCore.Solidity.Source.Expr.word
