@@ -8308,27 +8308,46 @@ def Expr.anfHoist
           | none =>
               (cArgs, apre, Expr.call callee' args')
       | Expr.callWithOptions callee opts args =>
-          match Expr.anfHoistableCallTy? functions freeFunctions env
-              externalCallKindEnv storageNames
-              (Expr.callWithOptions callee opts args) with
+          -- CALLEE-BASE-HOIST for a call with options
+          -- (`entryPoint().depositTo{value: v}(a)`): a member callee whose
+          -- base is itself a call (an internal call returning the contract
+          -- the external call targets) hoists that base first, exactly as for
+          -- a call without options: solc evaluates the callee expression
+          -- before the arguments.
+          let (cBase, cpre, callee') :=
+            match callee with
+            | Expr.member base@(Expr.call _ _) name =>
+                let (c1, pre, base') := rec1 c base
+                (c1, pre, Expr.member base' name)
+            | _ => (c, [], callee)
+          let (callEnv, classified) :=
+            if cpre.isEmpty then (env, Expr.callWithOptions callee opts args)
+            else
+              ( cpre.foldl (fun acc s =>
+                  match s with
+                  | Stmt.varDecl bindings _ =>
+                      VarBindings.extendTypeEnv acc bindings
+                  | _ => acc) env
+              , Expr.callWithOptions callee' opts args )
+          match Expr.anfHoistableCallTy? functions freeFunctions callEnv
+              externalCallKindEnv storageNames classified with
           | some retTy =>
-              let (c1, apre, args') := recArgs [] c args
+              let (c1, apre, args') := recArgs [] cBase args
               let t := anfHoistName c1
               let location :=
                 if Expr.anfHoistableCallStorageReturn
-                    functions freeFunctions env
-                    (Expr.callWithOptions callee opts args) then
+                    functions freeFunctions callEnv classified then
                   some DataLocation.storage
                 else
                   Ty.anfHoistLocation? retTy
               let decl := Stmt.varDecl
                 [{ name := some t, ty := some (Ty.anfTempTy retTy),
                    location := location }]
-                (some (Expr.callWithOptions callee opts args'))
-              (c1 + 1, apre ++ [decl], Expr.ident t)
+                (some (Expr.callWithOptions callee' opts args'))
+              (c1 + 1, cpre ++ apre ++ [decl], Expr.ident t)
           | none =>
-              let (c1, apre, args') := recArgs [] c args
-              (c1, apre, Expr.callWithOptions callee opts args')
+              let (c1, apre, args') := recArgs [] cBase args
+              (c1, cpre ++ apre, Expr.callWithOptions callee' opts args')
       | Expr.newExpr ty args =>
           let (c1, apre, args') := recArgs [] c args
           (c1, apre, Expr.newExpr ty args')
