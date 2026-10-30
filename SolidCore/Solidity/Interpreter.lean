@@ -2489,6 +2489,17 @@ def State.envAccountBalance (state : State) (context : Context)
       SolidCore.Solidity.Shared.Account.balanceAt
         context.accountBalances addr
 
+/-- A2 entry base for `self`'s balance, before `msg.value` is credited: the
+    adopted self balance once a world has been adopted (the seed map is stale
+    then, as for every other account in `State.envAccountBalance`), else the
+    Context seed. -/
+def State.entrySelfBalanceBase (state : State) (context : Context) : Word :=
+  match state.envWorld? with
+  | some _ => state.selfBalance
+  | none =>
+      SolidCore.Solidity.Shared.Account.balanceAt
+        context.accountBalances context.self
+
 def State.envAccountCode (state : State) (context : Context)
     (addr : Word) : List Byte :=
   match state.envWorld? with
@@ -11355,12 +11366,13 @@ def FunctionDef.evalBodyEntry (fuel : Nat) (table : FunctionTable)
         -- body execution. Re-basing from the oracle each entry (rather than
         -- threading a persistent balance) honours the environment injecting ETH
         -- between top-level calls; the intra-frame credit/debit is what A2 adds.
+        -- Once a world has been adopted the seed is stale (§2.3), so the base
+        -- is the adopted self balance (`State.entrySelfBalanceBase`).
         let state :=
           { state with
             selfBalance :=
               SolidCore.Solidity.Shared.addWord
-                (SolidCore.Solidity.Shared.Account.balanceAt
-                  context.accountBalances context.self)
+                (state.entrySelfBalanceBase context)
                 context.value
             worldMutatedSinceAdoption := true }
         let runtime : Runtime := { state, locals := [frame] }
@@ -11448,8 +11460,7 @@ theorem FunctionDef.call?_reverted_rolls_back
               { state with
                 selfBalance :=
                   SolidCore.Solidity.Shared.addWord
-                    (SolidCore.Solidity.Shared.Account.balanceAt
-                      context.accountBalances context.self)
+                    (state.entrySelfBalanceBase context)
                     context.value
                 worldMutatedSinceAdoption := true }
             locals := [frame] }
