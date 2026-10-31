@@ -17,7 +17,8 @@ package «solidity-lean» where
     ⟨`maxHeartbeats, 1000000⟩
   ]
 
--- The default root retains every proof and witness in the full build.
+-- The default root builds its import closure. CI also builds SolidCoreWitness
+-- to include witness modules that SolidCore.lean does not import.
 @[default_target]
 lean_lib SolidCore where
 

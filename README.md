@@ -207,7 +207,7 @@ pinned by `lean-toolchain`), pinned **solc 0.8.35**
 (`solc-select install 0.8.35`), and **Foundry** (`foundryup`) for the EVM side.
 
 ```sh
-lake build                      # full build: semantics + proofs + all witnesses
+lake build SolidCore SolidCoreWitness  # semantics + proofs + every witness
 scripts/fast_inner_gate.sh      # fast inner loop: semantic spine + laws only
 scripts/compare_forge_solc_interpreter.sh   # replay corpus vs real EVM
 python3 -m contest.run_samples  # contest harness end-to-end suite
