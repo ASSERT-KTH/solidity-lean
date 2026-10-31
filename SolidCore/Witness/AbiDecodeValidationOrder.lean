@@ -28,7 +28,7 @@ def revertsEmpty : Bool :=
 def laterAllocationWouldPanic : Bool :=
   match abiDecodeValuesExcept?
       [Ty.uint256, Ty.dynamicArray Ty.uint256] dirtyThenOversized with
-  | Except.error RevertData.memoryAllocationTooLarge => true
+  | Except.error (RevertData.panic 0x41) => true
   | _ => false
 
 #guard revertsEmpty

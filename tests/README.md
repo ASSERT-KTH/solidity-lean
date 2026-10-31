@@ -5,37 +5,34 @@ source semantics. Tests support the Lean semantics, but they do not replace the
 source-language definitions under `SolidCore.Solidity.*` (interpreter, ABI,
 typechecker, elaboration) and `SolidCore.Witness.*` (the example corpus).
 
-## Frozen regression suites
+## Regression suites
 
-The conformance corpus (`forge-harness/`) and the typechecker-acceptedness
-(`solc_rejects`) lanes are **frozen regression suites**, not a growing coverage
-target. As of this branch they are **103 paired cases** (99 + the
-recursion-gap and balance-accounting lanes + `storage-dirty-words`, which pins
-the Stage 0 total solc-faithful typed storage reads of
-`docs/openworld-postworld-plan.md` §2.6, + `reentrancy-adoption`, which pins
-the Stage 3 wholesale-`postWorld`-adoption model with five Forge-traced
-reentrancy lanes), **426+ Lean `#eval` assertions**, and
-**~311 pinned-solc rejection lanes**. New lanes are added
-**only to pin a discovered bug** — as `rational-constants` does (the A1
-over-reject) and the recursion/function-boundary lane does — and
-**never to extend coverage**. The open-ended acceptedness audit of the previous
-roadmap is closed, not continued.
+The conformance corpus (`forge-harness/`) pairs pinned-solc/Foundry behavior
+with Lean assertions, including explicit solc rejection lanes. Its manifest is
+the source of truth for the case list. Dedicated [fork regressions](ci/README.md)
+cover the closed-world responder, recognized assembly, and frontend additions.
+
+GitHub Actions runs the complete corpus, every Lean witness, fork regressions,
+Python tests, cryptographic parity checks, the AST audit, and contest detector
+selftests on pushes and pull requests. New regression cases pin behavior that
+would otherwise be untested.
 
 ## Running the suite
 
 - **Dev loop (fast):** `scripts/smoke_replay.sh` — a curated Lean-only subset
-  (28 cases, `--skip-forge`) that still generates each witness from the solc AST
+  (`--skip-forge`) that still generates each witness from the solc AST
   and validates every `#eval`. It first runs `lake build SolidCore` so a
   library/witness break cannot hide behind a green replay. Use this in the
   edit/build/check loop. The minute-plus heavy contracts (erc721-royalty,
   uniswap-v3-math, frontend-frontier, …) are intentionally excluded here and run
   only in the full replay.
 - **Commit gate (full):**
-  `FORGE=/Users/dan/.foundry/bin/forge scripts/compare_forge_solc_interpreter.sh --timeout 900`
+  `FOUNDRY_DYNAMIC_TEST_LINKING=false FOUNDRY_ISOLATE=false scripts/compare_forge_solc_interpreter.sh --timeout 900`
   runs every paired case (Forge/pinned-solc + Lean witnesses). A green run
-  exits `status=0` with `forge_interpreter_compare=pass`, `cases=99`,
-  `paired_cases_passed=yes`. It also honors `--jobs N` (default `1` =
-  sequential; `--jobs 10` parallelizes cases for a faster gate) and
+  exits `status=0` with `forge_interpreter_compare=pass` and
+  `paired_cases_passed=yes`. Set `SOLC`, `LAKE`, and `FORGE` to your tools;
+  [CI reproduction](ci/README.md#reproduce-locally) lists the full commands.
+  It also honors `--jobs N` (the wrapper defaults to `10`) and
   `--only CASE`. The sequential run takes ~20+ minutes; a replay interrupted
   mid-run counts as **not run**.
 - **AST audit:** `python3 scripts/audit_solc_ast_frontend.py` — must report

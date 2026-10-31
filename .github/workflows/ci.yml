@@ -1,0 +1,95 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  semantics:
+    name: Proofs, witnesses, fork regressions, and full EVM replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      LEAN_NUM_THREADS: "2"
+      LAKE: lake
+      FORGE: forge
+      # Dynamic test linking rewrites `new` into a cheatcode and bypasses
+      # Solidity try/catch around failed deployments. Replay real CREATE instead.
+      FOUNDRY_DYNAMIC_TEST_LINKING: "false"
+      # Keep calls within a test in one transaction, including transient storage.
+      FOUNDRY_ISOLATE: "false"
+      SOLC: /home/runner/.local/bin/solc
+      TMPDIR: ${{ github.workspace }}/ci-logs/tmp
+      KEEP_TMP: "1"
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.14"
+      - name: Prepare logs and Python environment
+        run: |
+          mkdir -p "$TMPDIR"
+          python -m venv .venv
+          .venv/bin/pip install -r tests/ci/requirements.txt
+      - name: Install pinned solc
+        run: |
+          mkdir -p "$(dirname "$SOLC")"
+          curl --fail --location --retry 3 \
+            https://raw.githubusercontent.com/argotorg/solc-bin/gh-pages/linux-amd64/solc-linux-amd64-v0.8.35+commit.47b9dedd \
+            --output "$SOLC"
+          echo "fa8ac9a32d301ad023a36ee5a29f8e291fe3200c60244e43c142539e82a617f4  $SOLC" | sha256sum --check
+          chmod +x "$SOLC"
+          "$SOLC" --version
+      - uses: foundry-rs/foundry-toolchain@dba66c27052e63476d886f22216e119ba7e615bf # v1
+        with:
+          version: v1.8.1
+      - name: Python harness and importer boundary tests
+        run: .venv/bin/python -m pytest tests --cov=contest --cov=scripts --cov-report=xml:ci-logs/python-coverage.xml --junitxml=ci-logs/pytest.xml
+      - name: Build every proof and witness, including unimported fork modules
+        uses: leanprover/lean-action@fe408643ea7367d8c0404a8be3975bb145f5fb64 # v1
+        with:
+          auto-config: false
+          build: true
+          build-args: SolidCore SolidCoreWitness
+          test: false
+          lint: false
+          use-mathlib-cache: true
+      - name: Build the native replay runtime
+        run: scripts/build_fast_runtime.sh 2>&1 | tee ci-logs/native-build.log
+      - name: Fork features in Foundry and Lean
+        run: python3 scripts/run_fork_tests.py --output-dir ci-logs/fork 2>&1 | tee ci-logs/fork-features.log
+      - name: Cryptographic reference parity
+        run: |
+          lake exe keccakParity 2>&1 | tee ci-logs/keccak-parity.log
+          lake exe precompileParity 2>&1 | tee ci-logs/precompile-parity.log
+      - name: Full Forge, solc rejection, importer, and Lean replay corpus
+        run: |
+          python3 scripts/run_forge_interpreter_harness.py \
+            --solc "$SOLC" --forge "$FORGE" --lake "$LAKE" \
+            --jobs 2 --timeout 900 2>&1 | tee ci-logs/full-replay.log
+      - name: Contest adjudication and fault-injection selftests
+        run: python3 -m contest.run_samples 2>&1 | tee ci-logs/contest-samples.log
+      - name: Complete corpus AST classification audit
+        run: python3 scripts/audit_solc_ast_frontend.py --solc "$SOLC" 2>&1 | tee ci-logs/ast-audit.log
+      - name: Preserve diagnostics
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7
+        with:
+          name: ci-diagnostics
+          path: |
+            ci-logs/*.log
+            ci-logs/*.xml
+            ci-logs/fork/*.lean
+            ci-logs/tmp/**/*.log
+            ci-logs/tmp/**/*.results
+            ci-logs/tmp/**/interpreter.lean
+            ci-logs/tmp/**/measure_out.txt
+          retention-days: 7

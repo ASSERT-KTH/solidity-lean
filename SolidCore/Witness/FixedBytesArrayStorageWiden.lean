@@ -73,7 +73,7 @@ private def isOkTrue : Except TypeError Bool -> Bool
 
 def copiedValue : Except TypeError Bool :=
   Examples.checkedOwnCallWordMatches 512 contract "run" State.empty []
-    0x636465660000000000000000
+    0x63646566000000000000
 
 def copiedStorageLane : Except TypeError Bool := do
   let state ←

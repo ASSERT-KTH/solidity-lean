@@ -67,8 +67,8 @@ def deployedState : Except TypeError State :=
 
 def sumIsNegThree : Except TypeError Bool := do
   let state ← deployedState
-  Examples.checkedCallWordMatches 4096 sourceUnit "Test" "run" state []
-    (SolidCore.Solidity.Shared.signedToWord (-3))
+  Examples.checkedCallValuesMatch 4096 sourceUnit "Test" "run" state []
+    [Value.int (SolidCore.Solidity.Shared.signedToWord (-3))]
 
 #guard accepted
 #guard isOkTrue sumIsNegThree

@@ -19,7 +19,7 @@ def fitsAtInitialPointer : Bool :=
 
 def panicsAtAdvancedPointer : Bool :=
   match abiCheckAllocationAt? 100256 false length with
-  | Except.error RevertData.memoryAllocationTooLarge => true
+  | Except.error (RevertData.panic 0x41) => true
   | _ => false
 
 #guard fitsAtInitialPointer

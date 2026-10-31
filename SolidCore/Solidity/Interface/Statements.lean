@@ -8737,8 +8737,8 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
           -- calls into ordered sibling prefix temps, then re-lower the residual
           -- (arg-position-call-free) declaration through the list so the LOCAL's
           -- decl is spliced as a SIBLING and stays in scope for later statements.
-          -- Fires only when a strictly-nested call is actually found; otherwise
-          -- falls back to the generic per-statement lowering below (byte-identical).
+          -- Nested calls use a prefix; other initializers use per-statement
+          -- lowering while keeping generated declaration blocks in this scope.
           let fallback : Option (List CoreStmt) :=
             let generic : Option (List CoreStmt) := do
               let head ←
@@ -8750,7 +8750,13 @@ def Stmt.listLowerCore? (internalFuel : Nat) (ctx? : Option StmtLoweringCtx)
                   (VarBindings.extendStorageRefEnv storageRefEnv bindings)
                   (VarBindings.extendTypeEnv env bindings) externalCallKindEnv
                   storageNames modifiers functions freeFunctions returnTys rest
-              some (head :: tail)
+              -- A source declaration does not open a lexical scope. Its core
+              -- lowering may group declaration/initialization in a generated
+              -- block (notably `Child child = new Child(...)`); splice that
+              -- group so the local remains visible in following statements.
+              some (match head with
+                | SolidCore.Solidity.Source.Stmt.block pieces => pieces ++ tail
+                | _ => head :: tail)
             -- Restrict to the initializer shapes that (a) have no specific list arm
             -- above and (b) declare a local that must survive as a sibling: array /
             -- struct-tuple literals and `new` expressions. Every other initializer

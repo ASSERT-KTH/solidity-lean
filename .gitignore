@@ -11,5 +11,11 @@ tests/.foundry-suites/
 *.so
 *.dylib
 __pycache__/
+.venv/
+.pytest_cache/
+.coverage
+ci-logs/
+tests/ci/out/
+tests/ci/cache/
 tests/forge-harness/*/out/
 tests/forge-harness/*/cache/

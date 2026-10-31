@@ -1294,7 +1294,9 @@ def StateVarDecl.publicGetterBodyExpr
       match returnTy with
       | Ty.bytes | Ty.string =>
           SolidCore.Solidity.Source.Expr.storageBytes name
-      | _ => SolidCore.Solidity.Source.Expr.storage name
+      -- A getter returns the scalar value, not its header/length. In
+      -- particular, a bytesN getter must load its payload rather than N.
+      | _ => SolidCore.Solidity.Source.Expr.storageIdent name
   | _ :: _ =>
       SolidCore.Solidity.Source.Expr.storagePath name path
 

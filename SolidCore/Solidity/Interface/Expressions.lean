@@ -2408,7 +2408,12 @@ def Expr.annotateAbiFuel : Nat -> TypeEnv -> Expr -> Expr
             Expr.isDirectLiteral lhs || Expr.isRawNumberLiteralExpression lhs
           let rhsAdopts :=
             Expr.isDirectLiteral rhs || Expr.isRawNumberLiteralExpression rhs
-          if rhsAdopts && !lhsAdopts then
+          -- Shifts and exponentiation have asymmetric operand types: a
+          -- literal base must not adopt the shift count/exponent's width.
+          if op == BinaryOp.shl || op == BinaryOp.shr ||
+              op == BinaryOp.sar || op == BinaryOp.exp then
+            Expr.binary op lhs rhs
+          else if rhsAdopts && !lhsAdopts then
             match Expr.abiTyWithEnv? env lhs with
             | some lhsTy =>
                 if implicitLiteralFits lhsTy rhs then
@@ -2836,7 +2841,11 @@ def Parameter.toStorageAwareDefaultCoreDecl? (fallbackPrefix : String)
           name uninitializedStorageReturnTarget)
   | _ => do
       let coreTy ← Ty.toCore? param.ty
-      if param.location == some DataLocation.memory then
+      -- A calldata aggregate can return through an ANF memory-reference temp.
+      -- Keep return capture reference-capable; source checking still enforces
+      -- calldata immutability.
+      if param.location == some DataLocation.memory ||
+          param.location == some DataLocation.calldata then
         some (SolidCore.Solidity.Source.Stmt.memoryVarDecl coreTy name none)
       else
         some (SolidCore.Solidity.Source.Stmt.varDecl coreTy name none)
@@ -8233,7 +8242,27 @@ def Expr.anfHoist
           -- Assignment RHS effects before LHS-reference effects (solc order).
           let (c1, rpre, rhs') := rec1 c rhs
           let (c2, lpre, lhs') := rec1 c1 lhs
-          (c2, rpre ++ lpre, Expr.assign lhs' op rhs')
+          let snapshotRhs := match op with
+            | AssignOp.assign => !lpre.isEmpty
+            | _ => false
+          if !snapshotRhs then
+            (c2, rpre ++ lpre, Expr.assign lhs' op rhs')
+          else
+            match Expr.abiTyWithInternalFunctionsEnv?
+                functions freeFunctions env rhs with
+            | some ty =>
+                if (Ty.anfHoistLocation? ty).isNone then
+                  -- The RHS can read state without making a call. Evaluate
+                  -- that value before a hoisted LHS index call mutates it.
+                  let name := anfHoistName c2
+                  let snapshot := Stmt.varDecl
+                    [{ name := some name, ty := some (Ty.anfTempTy ty) }]
+                    (some rhs')
+                  (c2 + 1, rpre ++ [snapshot] ++ lpre,
+                    Expr.assign lhs' op (Expr.ident name))
+                else
+                  (c2, rpre ++ lpre, Expr.assign lhs' op rhs')
+            | none => (c2, rpre ++ lpre, Expr.assign lhs' op rhs')
       | Expr.array elems =>
           let (c1, pre, elems') := recExprs c elems
           (c1, pre, Expr.array elems')

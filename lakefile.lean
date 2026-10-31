@@ -6,9 +6,9 @@ require evmyul from git
 
 -- The shared "language of composition": the interaction monad, Query/Answer,
 -- OpenWorld, and ForwardRel, extracted verbatim from evm-compiler. Consumed as a
--- Lake path dependency (a sibling git repo); promote to a git URL later. A
--- hash-check (scripts/check_shared_interaction_hashes.py) guarantees its
--- Simulation sources stay byte-identical to evm-compiler's.
+-- pinned Git dependency. The optional sibling-repository integration check
+-- (scripts/check_shared_interaction_hashes.py) verifies evm-compiler re-exports
+-- these shared Simulation definitions instead of maintaining duplicate sources.
 require «evm-interaction» from git
   "https://github.com/danrobinson/evm-interaction.git" @ "c939817c55f966dab97e1ba8df05ceca1fdfbdb2"
 

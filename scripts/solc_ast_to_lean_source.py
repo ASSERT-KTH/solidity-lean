@@ -654,6 +654,8 @@ def _word_array_element(decl: dict[str, Any]) -> str | None:
     name = base.get("name")
     if name == "address" and base.get("stateMutability") != "payable":
         return "address"
+    if name == "uint":
+        return "uint256"
     return name if name in ("uint256", "bytes32") else None
 
 

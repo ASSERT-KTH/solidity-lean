@@ -183,6 +183,11 @@ formal model — and its fix lands here, in public, with a regression witness.
 
 ## Validation, continuously
 
+[GitHub Actions CI](.github/workflows/ci.yml) runs every proof and witness,
+the full Forge/Lean replay corpus, dedicated fork regression fixtures, Python
+tests, cryptographic parity checks, contest selftests, and the AST audit on
+every push and pull request. See [CI coverage and local commands](tests/ci/README.md).
+
 - **Witness modules** (`SolidCore/Witness/`) pin end-to-end behavior of
   fixed programs and regression cases.
 - **Replay corpus** (`tests/forge-harness/`): each case compiles with
@@ -231,6 +236,30 @@ Beyond that contest scope, this fork implements closed-world multi-contract
 execution in [Reflective.lean](SolidCore/Solidity/Reflective.lean), including
 reentrancy, delegatecall, and recorded contract creation. The fork changes and
 limitations are listed above.
+
+### CI and regression maintenance
+
+- Run all proof and witness modules explicitly in CI, including modules outside
+  the default root's import list, with pinned Lean dependencies, solc, Foundry,
+  Python, and action revisions.
+- Run the complete paired replay corpus, contest detector selftests, AST audit,
+  cryptographic reference checks, and Python harness tests on pushes and pull requests.
+- Add paired Foundry/Lean fork fixtures and importer boundary controls for the
+  features listed in [CI coverage](tests/ci/README.md).
+- Correct previously unbuilt witnesses: match the panic constructor explicitly,
+  compare signed results as signed values, and use a ten-byte widening expectation.
+- Accept `uint[]` as the `uint256[]` alias in recognized memory-array assembly.
+- Disable Foundry dynamic test linking in CI so constructor-revert tests retain
+  Solidity `try/catch` semantics, keep test calls in one transaction for transient
+  storage, and retain diagnostic artifacts on failures.
+- Repair regressions exposed by the full gates: snapshot scalar assignment RHS
+  values before hoisted index calls, preserve literal shift/exponent widths,
+  retain calldata aggregate return references, and keep locals initialized by
+  contract creation in their enclosing scope.
+- Return the storage payload from scalar fixed-bytes getters instead of the
+  fixed-bytes length/header.
+- Prevent double-crediting `msg.value` when the reflective responder enters
+  executed contracts or constructors after transferring value in the shared world.
 
 ## License
 

@@ -215,11 +215,11 @@ partial def answerCallInner (reg : Registry) (depth : Nat) (cs : Cursors)
         s!"value {value} from {caller} to {self}: balance {balanceOfWorld world caller}")
   match reg.resolve? cs target with
   | some (.code contract immutables) =>
-      -- A2 entry re-bases `selfBalance` from the Context seed `accountBalances` plus
-      -- `msg.value` (`FunctionDef.call`), not from the adopted world. Seed it with the
-      -- world balance minus the value the entry will add back, so the callee starts
-      -- with exactly its post-transfer balance (call) / unchanged balance (delegatecall).
-      let entrySeed := balanceOfWorld world1 self - u256ToWord req.apparentValue
+      -- Function entry credits `msg.value` to the adopted self balance. The
+      -- responder has already transferred value, so remove that credit from
+      -- both entry bases before invoking the function. Modular subtraction also
+      -- handles delegatecall frames whose inherited value exceeds their balance.
+      let entrySeed := Shared.subWord (balanceOfWorld world1 self) (u256ToWord req.apparentValue)
       let base : Context := { contract.context with
         blockEnv := cs.blockEnv reg.blockEnv, txEnv := reg.txEnv,
         accountBalances := (self, entrySeed) :: contract.context.accountBalances }
@@ -232,7 +232,7 @@ partial def answerCallInner (reg : Registry) (depth : Nat) (cs : Cursors)
               | some v => st.storeImmutable nw.1 v
               | none => st
           | none => st)
-        (adoptWorld world1 ctx State.empty)
+        { (adoptWorld world1 ctx State.empty) with selfBalance := entrySeed }
       let (r, cs) ← dispatch reg (depth - 1) cs contract base st0 self caller
         (u256ToWord req.apparentValue) calldata
       let post := if r.success then snapshotWorld ctx r.state else world
@@ -322,7 +322,8 @@ partial def answerCreate (reg : Registry) (depth : Nat) (cs : Cursors)
               | some v => st.storeImmutable nw.1 v
               | none => st
           | none => st)
-        (adoptWorld world1 ctx State.empty)
+        { (adoptWorld world1 ctx State.empty) with
+          selfBalance := Shared.subWord (balanceOfWorld world1 addr) value }
       let args ← match ABI.decodeFunctionArgs? ctor ctorArgs with
         | .ok a => pure a
         | .error _ => .error s!"constructor arguments of {name}"
